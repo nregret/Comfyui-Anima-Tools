@@ -827,6 +827,9 @@ def normalize_favorites_data(data):
         items = section.get("items")
         if not isinstance(items, list):
             items = []
+        for g in groups:
+            if isinstance(g, dict) and g.get("isSystem") and g.get("name") != "My Favorites":
+                g["name"] = "My Favorites"
         normalized[key] = {"groups": groups, "items": items}
     return normalized
 

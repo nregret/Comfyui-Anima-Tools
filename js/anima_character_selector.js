@@ -1789,7 +1789,7 @@ async function openCharacterSelectorModal(node, tagsWidget) {
     };
 
     const totalPagesLabel = document.createElement("span");
-    totalPagesLabel.innerText = `/ 1 ${t("pages")}`;
+    totalPagesLabel.innerText = `/ 1 ${t("Pages")}`;
     
     pageNumContainer.appendChild(pageInput);
     pageNumContainer.appendChild(totalPagesLabel);
@@ -2591,7 +2591,7 @@ async function openCharacterSelectorModal(node, tagsWidget) {
         pageStats.innerText = t("Total {total} characters | Showing {start}-{end}", { total: totalItems, start: startIdx, end: endIdx });
         
         pageInput.value = currentPage;
-        totalPagesLabel.innerText = `/ ${totalPages} ${t("pages")}`;
+        totalPagesLabel.innerText = `/ ${totalPages} ${t("Pages")}`;
         
         firstPageBtn.disabled = (currentPage === 1);
         prevPageBtn.disabled = (currentPage === 1);
