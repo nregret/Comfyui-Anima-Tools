@@ -1854,7 +1854,7 @@ async function openBackgroundSelectorModal(node, tagsWidget) {
                 triggerFilter();
             };
             label.appendChild(checkbox);
-            label.appendChild(document.createTextNode(group.name));
+            label.appendChild(document.createTextNode(group.isSystem ? t(group.name) : group.name));
             popover.appendChild(label);
         });
 

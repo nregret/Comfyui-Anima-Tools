@@ -789,23 +789,23 @@ FAVORITE_SECTIONS = ["artist", "character", "lora", "clothing", "background"]
 def get_default_favorites_data():
     return {
         "artist": {
-            "groups": [{"id": "default", "name": "默认收藏", "isSystem": True}],
+            "groups": [{"id": "default", "name": "My Favorites", "isSystem": True}],
             "items": []
         },
         "character": {
-            "groups": [{"id": "default", "name": "默认收藏", "isSystem": True}],
+            "groups": [{"id": "default", "name": "My Favorites", "isSystem": True}],
             "items": []
         },
         "lora": {
-            "groups": [{"id": "default", "name": "默认收藏", "isSystem": True}],
+            "groups": [{"id": "default", "name": "My Favorites", "isSystem": True}],
             "items": []
         },
         "clothing": {
-            "groups": [{"id": "default", "name": "默认收藏", "isSystem": True}],
+            "groups": [{"id": "default", "name": "My Favorites", "isSystem": True}],
             "items": []
         },
         "background": {
-            "groups": [{"id": "default", "name": "默认收藏", "isSystem": True}],
+            "groups": [{"id": "default", "name": "My Favorites", "isSystem": True}],
             "items": []
         }
     }

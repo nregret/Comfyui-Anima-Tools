@@ -198,6 +198,7 @@ const TRANSLATIONS = {
     "Prev": "上一页",
     "Next": "下一页",
     "Last": "尾页",
+    "pages": "页",
     "Uniqueness ": "独特度 ",
     "CDN: JsDelivr (Recommended)": "CDN源: JsDelivr (推荐)",
     "CDN: GitHub Raw (Proxy)": "CDN源: GitHub Raw (代理)",
