@@ -408,7 +408,7 @@ async function openCharacterSelectorModal(node, tagsWidget) {
             label.appendChild(checkbox);
             
             const nameSpan = document.createElement("span");
-            nameSpan.innerText = g.name;
+            nameSpan.innerText = g.isSystem ? t(g.name) : g.name;
             label.appendChild(nameSpan);
             
             popover.appendChild(label);
@@ -1778,7 +1778,7 @@ async function openCharacterSelectorModal(node, tagsWidget) {
     };
 
     const totalPagesLabel = document.createElement("span");
-    totalPagesLabel.innerText = "/ 1 页";
+    totalPagesLabel.innerText = `/ 1 ${t("Pages")}`;
     
     pageNumContainer.appendChild(pageInput);
     pageNumContainer.appendChild(totalPagesLabel);
@@ -2069,7 +2069,7 @@ async function openCharacterSelectorModal(node, tagsWidget) {
             item.innerHTML = `
                 <div style="display:flex;align-items:center;gap:10px; max-width: 60%; overflow:hidden;">
                     <span style="font-size:14px;">${isDefault ? '❤️' : '📁'}</span>
-                    <span class="group-name-text" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${g.name}</span>
+                    <span class="group-name-text" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${isDefault ? t(g.name) : g.name}</span>
                 </div>
                 <div style="display:flex; align-items:center; gap: 8px;">
                     <span style="font-size:11px;opacity:0.8;background:${isDefault ? 'rgba(219,39,119,0.15)' : 'rgba(255,255,255,0.06)'};color:${isDefault ? '#f472b6' : '#9ca3af'};padding:2px 6px;border-radius:20px;font-weight:700;">${count}</span>
@@ -2580,7 +2580,7 @@ async function openCharacterSelectorModal(node, tagsWidget) {
         pageStats.innerText = t("Total {total} characters | Showing {start}-{end}", { total: totalItems, start: startIdx, end: endIdx });
         
         pageInput.value = currentPage;
-        totalPagesLabel.innerText = `/ ${totalPages} 页`;
+        totalPagesLabel.innerText = `/ ${totalPages} ${t("Pages")}`;
         
         firstPageBtn.disabled = (currentPage === 1);
         prevPageBtn.disabled = (currentPage === 1);

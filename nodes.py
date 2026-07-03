@@ -1406,23 +1406,23 @@ FAVORITE_SECTIONS = ["artist", "character", "lora", "clothing", "background", "p
 def get_default_favorites_data():
     return {
         "artist": {
-            "groups": [{"id": "default", "name": "默认收藏", "isSystem": True}],
+            "groups": [{"id": "default", "name": "My Favorites", "isSystem": True}],
             "items": []
         },
         "character": {
-            "groups": [{"id": "default", "name": "默认收藏", "isSystem": True}],
+            "groups": [{"id": "default", "name": "My Favorites", "isSystem": True}],
             "items": []
         },
         "lora": {
-            "groups": [{"id": "default", "name": "默认收藏", "isSystem": True}],
+            "groups": [{"id": "default", "name": "My Favorites", "isSystem": True}],
             "items": []
         },
         "clothing": {
-            "groups": [{"id": "default", "name": "默认收藏", "isSystem": True}],
+            "groups": [{"id": "default", "name": "My Favorites", "isSystem": True}],
             "items": []
         },
         "background": {
-            "groups": [{"id": "default", "name": "默认收藏", "isSystem": True}],
+            "groups": [{"id": "default", "name": "My Favorites", "isSystem": True}],
             "items": []
         },
         "pose": {
@@ -1448,6 +1448,9 @@ def normalize_favorites_data(data):
         items = section.get("items")
         if not isinstance(items, list):
             items = []
+        for g in groups:
+            if isinstance(g, dict) and g.get("isSystem") and g.get("name") != "My Favorites":
+                g["name"] = "My Favorites"
         normalized[key] = {"groups": groups, "items": items}
     return normalized
 

@@ -1844,7 +1844,7 @@ async function openLoraSelectorModal(node) {
     pagButtons.className = "anima-lora-pagination-controls";
 
     const prevBtn = document.createElement("button");
-    prevBtn.innerText = "上一页";
+    prevBtn.innerText = t("Prev");
     prevBtn.className = "anima-lora-pagination-btn";
     prevBtn.disabled = true;
     prevBtn.onclick = () => {

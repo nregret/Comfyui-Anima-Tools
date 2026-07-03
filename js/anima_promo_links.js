@@ -27,7 +27,7 @@ export function createPromoLinks({ accentColor = "#38bdf8" } = {}) {
         title: PROMO_LINKS.afdian ? t("Support on Afdian") : t("Afdian link not configured"),
         accentColor: "#f472b6",
         width: 54,
-        content: `<span style="font-size:12px;font-weight:850;">爱发电</span>`,
+        content: `<span style="font-size:12px;font-weight:850;">${t("Afdian")}</span>`,
     }));
 
     return wrap;
