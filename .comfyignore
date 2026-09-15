@@ -1,0 +1,5 @@
+tests/
+tools/
+.github/
+FRONTEND_ARCHITECTURE.md
+animatools_video_script.md

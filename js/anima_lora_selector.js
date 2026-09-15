@@ -591,7 +591,7 @@ async function openLoraSelectorModal(node) {
     let loraManifestItems = [];
     let loraManifestMap = new Map();
     let activeDownloads = {};
-    let config = { custom_lora_dir: "", civitai_api_key: "" };
+    let config = { custom_lora_dir: "", has_civitai_api_key: false };
     
     // Favorites config
     let favoritesConfig = {
@@ -3684,7 +3684,10 @@ async function openLoraSelectorModal(node) {
 
         const keyInput = document.createElement("input");
         keyInput.type = "password";
-        keyInput.value = config.civitai_api_key || "";
+        keyInput.value = config.has_civitai_api_key ? "••••••••" : "";
+        let keyChanged = false;
+        keyInput.addEventListener("input", () => { keyChanged = true; });
+        keyInput.addEventListener("focus", () => { if (!keyChanged) keyInput.select(); });
         keyInput.placeholder = t("Enter Civitai API Key...");
         keyInput.style.cssText = `
             background: #2c2c2e;
@@ -3717,14 +3720,14 @@ async function openLoraSelectorModal(node) {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         custom_lora_dir: dirVal,
-                        civitai_api_key: keyVal
+                        ...(keyChanged ? { civitai_api_key: keyVal } : {})
                     })
                 });
                 
+                const data = await resp.json();
                 if (resp.ok) {
-                    const data = await resp.json();
-                    config.custom_lora_dir = dirVal;
-                    config.civitai_api_key = keyVal;
+                    config.custom_lora_dir = data.custom_lora_dir;
+                    config.has_civitai_api_key = data.has_civitai_api_key === true;
                     config.custom_lora_dir_valid = data.custom_lora_dir_valid === true;
                     config.custom_lora_dir_abs = data.custom_lora_dir_abs || "";
                     globalLoraConfig = config;
@@ -3744,7 +3747,7 @@ async function openLoraSelectorModal(node) {
                     }
                     dialog.remove();
                 } else {
-                    alert("Failed to save config.");
+                    alert(data.error || "Failed to save config.");
                 }
             } catch (e) {
                 console.error(e);

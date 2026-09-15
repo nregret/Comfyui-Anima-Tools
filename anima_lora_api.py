@@ -6,11 +6,13 @@ Provides backend API wrappers, config loading/saving, and background downloader.
 import json
 import os
 import re
+import tempfile
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 import folder_paths
 
 CIVITAI_API_BASE = "https://civitai.red/api/v1"
@@ -19,6 +21,62 @@ CIVITAI_SEARCH_HOST = "https://search-new.civitai.com"
 CIVITAI_SEARCH_CLIENT_KEY = "8c46eb2508e21db1e9828a97968d91ab1ca1caa5f70a00e88a2ba1e286603b61"
 USER_AGENT = "ComfyUI-Anima-Tools/1.0"
 VALID_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")
+CIVITAI_HOSTS = ("civitai.com", "www.civitai.com", "civitai.red")
+CIVITAI_IMAGE_HOSTS = ("image.civitai.com", "image-b2.civitai.com", "image-b3.civitai.com")
+PREVIEW_MAX_BYTES = 8 * 1024 * 1024
+
+
+def _validate_civitai_url(url: str, allow_storage: bool = False) -> None:
+    parsed = urllib.parse.urlsplit(url)
+    host = parsed.hostname or ""
+    allowed = host in (*CIVITAI_HOSTS, *CIVITAI_IMAGE_HOSTS)
+    if allow_storage:
+        allowed = allowed or host.endswith(".r2.cloudflarestorage.com")
+    if parsed.scheme != "https" or not allowed or parsed.port not in (None, 443) or parsed.username or parsed.password:
+        raise ValueError("Only trusted Civitai HTTPS URLs are supported")
+
+
+class _CivitaiRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _validate_civitai_url(newurl, allow_storage=True)
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is not None:
+            redirected.remove_header("Authorization")
+            redirected.remove_header("Cookie")
+        return redirected
+
+
+def normalize_lora_filename(filename: str) -> str | None:
+    filename = str(filename or "").replace("\\", "/").strip()
+    if not filename.lower().endswith(".safetensors") or re.search(r'[<>:"|?*\x00-\x1f]', filename):
+        return None
+    parts = filename.split("/")
+    if any(part in ("", ".", "..") or part.endswith((" ", ".")) for part in parts):
+        return None
+    if any(re.fullmatch(r"(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?", part) for part in parts):
+        return None
+    return filename
+
+
+def validate_lora_directory(directory: str) -> str:
+    candidate = Path(directory).expanduser().resolve()
+    for root in folder_paths.get_folder_paths("loras"):
+        if candidate.is_relative_to(Path(root).resolve()) and candidate.is_dir():
+            return str(candidate)
+    raise ValueError("Choose a directory registered under loras in ComfyUI extra_model_paths.yaml")
+
+
+def _write_lora_companion(path: str, data: bytes) -> None:
+    directory = validate_lora_directory(str(Path(path).parent))
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=directory, prefix=".anima-", delete=False) as target:
+            temp_path = target.name
+            target.write(data)
+        os.replace(temp_path, path)
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
 # Thread-safe download tracking
 _DOWNLOAD_JOBS = {}
@@ -117,21 +175,12 @@ def get_lora_save_dir() -> str:
     """Resolves directory path where downloaded LoRA models should be saved."""
     config = load_config()
     custom_dir = config.get("custom_lora_dir", "").strip()
-    if custom_dir and os.path.isdir(custom_dir):
-        return custom_dir
-    
-    # Fallback to ComfyUI LoRAs directories
-    try:
-        roots = folder_paths.get_folder_paths("loras")
-        if roots and os.path.isdir(roots[0]):
-            return roots[0]
-    except Exception:
-        pass
-    
-    # Deep fallback to models/loras
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "models", "loras"))
-    os.makedirs(base_dir, exist_ok=True)
-    return base_dir
+    if custom_dir:
+        return validate_lora_directory(custom_dir)
+    for root in folder_paths.get_folder_paths("loras"):
+        if os.path.isdir(root):
+            return validate_lora_directory(root)
+    raise ValueError("No existing LoRA directory is registered in ComfyUI")
 
 
 def _request_headers(api_key: str | None = None, json_content: bool = True) -> dict:
@@ -144,9 +193,10 @@ def _request_headers(api_key: str | None = None, json_content: bool = True) -> d
 
 
 def _read_json_url(url: str, api_key: str | None = None, timeout: int = 30) -> dict | None:
+    _validate_civitai_url(url)
     req = urllib.request.Request(url, headers=_request_headers(api_key), method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.build_opener(_CivitaiRedirectHandler()).open(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         print(f"[Anima Tools] Civitai API error {e.code}: {e.reason} at {url}")
@@ -439,22 +489,26 @@ def fetch_civitai_model(model_id: int | str) -> dict | None:
     return _read_json_url(url, api_key=api_key)
 
 
+def read_civitai_preview(image_url: str) -> bytes:
+    _validate_civitai_url(image_url)
+    if urllib.parse.urlsplit(image_url).hostname not in CIVITAI_IMAGE_HOSTS:
+        raise ValueError("Only Civitai image hosts are supported")
+    image_url = get_civitai_preview_image_url(image_url, width=512)
+    req = urllib.request.Request(image_url, headers=_request_headers(json_content=False))
+    with urllib.request.build_opener(_CivitaiRedirectHandler()).open(req, timeout=30) as resp:
+        if not resp.headers.get_content_type().startswith("image/"):
+            raise ValueError("Preview response is not an image")
+        data = resp.read(PREVIEW_MAX_BYTES + 1)
+    if len(data) > PREVIEW_MAX_BYTES:
+        raise ValueError("Preview exceeds 8 MiB")
+    return data
+
+
 def download_preview_image(image_url: str, save_path: str) -> bool:
     """Downloads preview image from Civitai."""
     try:
-        image_url = get_civitai_preview_image_url(image_url, width=512)
-        # Append width=512 for optimization if not already present
-        if "civitai-media-cache" not in image_url and "width=" not in image_url:
-            separator = "&" if "?" in image_url else "?"
-            image_url = f"{image_url}{separator}width=512"
-            
-        req = urllib.request.Request(image_url, headers=_request_headers(json_content=False))
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            image_data = resp.read()
-            
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        with open(save_path, "wb") as f:
-            f.write(image_data)
+        image_data = read_civitai_preview(image_url)
+        _write_lora_companion(save_path, image_data)
         return True
     except Exception as e:
         print(f"[Anima Tools] Failed to download preview image: {e}")
@@ -463,25 +517,15 @@ def download_preview_image(image_url: str, save_path: str) -> bool:
 
 def _download_thread(task_id: str, download_url: str, save_path: str, api_key: str | None = None, metadata: dict = None):
     """Worker thread function to execute download and update task status."""
-    temp_path = f"{save_path}.download"
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    temp_path = None
     
     try:
-        req_url = download_url
-        if "civitai.com" in req_url:
-            req_url = req_url.replace("civitai.com", "civitai.red")
-            
-        if api_key:
-            # Append token to URL if not already present
-            parsed = urllib.parse.urlparse(req_url)
-            query = urllib.parse.parse_qs(parsed.query)
-            if "token" not in query:
-                query["token"] = [api_key]
-                req_url = urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(query, doseq=True)))
-                
-        req = urllib.request.Request(req_url, headers=_request_headers(api_key, json_content=False))
+        directory = validate_lora_directory(str(Path(save_path).parent))
+        _validate_civitai_url(download_url)
+        req = urllib.request.Request(download_url, headers=_request_headers(api_key, json_content=False))
         
-        with urllib.request.urlopen(req, timeout=60) as resp, open(temp_path, "wb") as f:
+        with urllib.request.build_opener(_CivitaiRedirectHandler()).open(req, timeout=60) as resp, tempfile.NamedTemporaryFile(dir=directory, prefix=".anima-", suffix=".download", delete=False) as f:
+            temp_path = f.name
             total_size = int(resp.headers.get("Content-Length") or 0)
             downloaded = 0
             
@@ -505,8 +549,7 @@ def _download_thread(task_id: str, download_url: str, save_path: str, api_key: s
         if metadata:
             meta_path = os.path.splitext(save_path)[0] + ".json"
             try:
-                with open(meta_path, "w", encoding="utf-8") as f:
-                    json.dump(metadata, f, indent=2, ensure_ascii=False)
+                _write_lora_companion(meta_path, json.dumps(metadata, indent=2, ensure_ascii=False).encode("utf-8"))
             except Exception as e:
                 print(f"[Anima Tools] Failed to save metadata json: {e}")
                 
@@ -550,7 +593,7 @@ def _download_thread(task_id: str, download_url: str, save_path: str, api_key: s
             _DOWNLOAD_JOBS[task_id]["status"] = "failed"
             _DOWNLOAD_JOBS[task_id]["error"] = str(e)
     finally:
-        if os.path.exists(temp_path):
+        if temp_path and os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
             except Exception:
@@ -560,11 +603,23 @@ def _download_thread(task_id: str, download_url: str, save_path: str, api_key: s
 def start_download_task(version_id: int | str, download_url: str, filename: str, metadata: dict = None) -> str:
     """Starts a background thread to download a model version."""
     task_id = str(version_id)
+    if not task_id.isascii() or not task_id.isdigit():
+        raise ValueError("Invalid Civitai version id")
+    _validate_civitai_url(download_url)
+    parsed = urllib.parse.urlsplit(download_url)
+    if parsed.hostname not in CIVITAI_HOSTS or parsed.path != f"/api/download/models/{task_id}":
+        raise ValueError("Download URL must match the Civitai model version")
+    query = urllib.parse.parse_qsl(parsed.query)
+    if any(key not in ("type", "format", "size", "fp") for key, _ in query):
+        raise ValueError("Unsupported Civitai download parameters")
+    download_url = urllib.parse.urlunsplit(("https", "civitai.com", parsed.path, urllib.parse.urlencode(query), ""))
     save_dir = get_lora_save_dir()
-    filename = str(filename or "").replace("\\", "/").split("/")[-1].strip()
-    if not filename.lower().endswith(".safetensors"):
-        raise ValueError("LoRA filename must end with .safetensors")
+    filename = normalize_lora_filename(filename)
+    if not filename or "/" in filename:
+        raise ValueError("Use a plain .safetensors filename without a path")
     save_path = os.path.join(save_dir, filename)
+    if Path(save_path).is_symlink():
+        raise ValueError("Cannot replace a symlinked LoRA")
     
     with _DOWNLOAD_JOBS_LOCK:
         if task_id in _DOWNLOAD_JOBS:

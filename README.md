@@ -18,6 +18,14 @@
 
 ---
 
+## 3.3.1 LoRA 安全更新
+
+LoRA 加载和下载仅接受 `.safetensors`，文件必须位于 ComfyUI 已登记的 LoRA 目录中。使用其他磁盘或目录前，请先在 ComfyUI 的 `extra_model_paths.yaml` 中将其登记为 `loras` 路径，然后重启 ComfyUI。设置面板仍可选择这些目录及其已有子目录。
+
+Civitai 密钥不会回传到浏览器；保留掩码不编辑即可继续使用已保存密钥，清空密钥输入框并保存可删除密钥。下载跳转不携带认证头，远程 LoRA 预览仅接受 Civitai 图片地址。
+
+LoRA loading and downloading require `.safetensors` files within directories registered with ComfyUI. Register other locations under `loras` in `extra_model_paths.yaml` and restart ComfyUI before selecting them. Saved Civitai keys are never returned to the browser; leave the masked field unchanged to keep a key, or clear it and save to remove it. Download redirects do not forward credentials, and remote LoRA previews only accept Civitai image URLs.
+
 ## 🖼️ 视觉预览 (Visual Preview)
 
 > [!NOTE]

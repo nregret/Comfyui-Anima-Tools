@@ -1577,7 +1577,6 @@ class AnimaMultiLoraLoader:
         import comfy.sd
         import comfy.utils
         import folder_paths
-        from .anima_lora_api import get_lora_save_dir
         
         try:
             loras = json.loads(lora_list_json)
@@ -1596,28 +1595,20 @@ class AnimaMultiLoraLoader:
             
             if not lora_name:
                 continue
-                
-            # 查找 LoRA 文件路径
-            lora_path = folder_paths.get_full_path("loras", lora_name)
-            
-            if not lora_path:
-                custom_dir = get_lora_save_dir()
-                candidate = os.path.join(custom_dir, lora_name)
-                if os.path.isfile(candidate):
-                    lora_path = candidate
-                else:
-                    candidate_rel = os.path.join(custom_dir, lora_name.replace("/", os.sep))
-                    if os.path.isfile(candidate_rel):
-                        lora_path = candidate_rel
+            lora_name = normalize_lora_filename(lora_name)
+            if not lora_name:
+                raise ValueError("LoRA name must be a relative .safetensors path")
+            lora_path = resolve_lora_abs_path(lora_name)
             
             if not lora_path:
                 # 模糊匹配
                 found_match = False
                 for system_lora in folder_paths.get_filename_list("loras"):
                     if os.path.basename(system_lora) == os.path.basename(lora_name):
-                        lora_path = folder_paths.get_full_path("loras", system_lora)
-                        found_match = True
-                        break
+                        lora_path = resolve_lora_abs_path(system_lora)
+                        if lora_path:
+                            found_match = True
+                            break
                 if not found_match:
                     print(f"[Anima Tools] LoRA file not found: {lora_name}, skipping.")
                     continue
@@ -2347,6 +2338,10 @@ from .anima_lora_api import (
     load_config as load_lora_config,
     save_config as save_lora_config,
     get_lora_save_dir,
+    normalize_lora_filename,
+    validate_lora_directory,
+    read_civitai_preview,
+    CIVITAI_IMAGE_HOSTS,
     download_preview_image,
     fetch_civitai_model
 )
@@ -2381,8 +2376,10 @@ def get_custom_lora_dir_status() -> tuple[str, bool, str]:
     custom_dir = config.get("custom_lora_dir", "").strip()
     if not custom_dir:
         return "", False, ""
-    abs_custom_dir = os.path.abspath(os.path.expanduser(custom_dir))
-    return custom_dir, os.path.isdir(abs_custom_dir), abs_custom_dir
+    try:
+        return custom_dir, True, validate_lora_directory(custom_dir)
+    except (ValueError, OSError, RuntimeError):
+        return custom_dir, False, ""
 
 def get_lora_root_infos() -> list[dict]:
     roots = []
@@ -2398,10 +2395,6 @@ def get_lora_root_infos() -> list[dict]:
     except Exception:
         pass
 
-    fallback = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "models", "loras"))
-    if os.path.isdir(fallback):
-        roots.append({"path": fallback, "source": "default"})
-
     deduped = []
     seen = set()
     for root_info in roots:
@@ -2414,17 +2407,6 @@ def get_lora_root_infos() -> list[dict]:
 
 def get_lora_roots() -> list[str]:
     return [root_info["path"] for root_info in get_lora_root_infos()]
-
-def normalize_lora_filename(filename: str) -> str | None:
-    filename = str(filename or "").replace("\\", "/").strip()
-    if not filename or filename.endswith("/"):
-        return None
-    if os.path.isabs(filename) or Path(filename).is_absolute():
-        return None
-    parts = [part for part in filename.split("/") if part]
-    if any(part in (".", "..") for part in parts):
-        return None
-    return "/".join(parts)
 
 def is_relative_to_path(candidate: Path, root: Path) -> bool:
     try:
@@ -2457,7 +2439,7 @@ def resolve_lora_candidate_under_root(root: str, filename: str) -> str | None:
         return None
     if not is_relative_to_path(candidate, root_path):
         return None
-    if candidate.exists():
+    if candidate.is_file() and candidate.suffix.lower() == ".safetensors":
         return str(candidate)
     return None
 
@@ -2485,7 +2467,7 @@ def resolve_lora_companion_path(abs_path: str, extension: str, suffix: str = "",
         resolved = Path(candidate).resolve()
     except (OSError, RuntimeError):
         return None
-    if not is_lora_path_contained(str(resolved)):
+    if resolved.suffix.lower() != extension.lower() or not is_lora_path_contained(str(resolved)):
         return None
     if must_exist and not resolved.exists():
         return None
@@ -2523,7 +2505,7 @@ def resolve_lora_abs_path(filename: str) -> str | None:
     except Exception:
         abs_path = None
 
-    if abs_path and os.path.exists(abs_path) and is_lora_path_contained(abs_path):
+    if abs_path and Path(abs_path).resolve().suffix.lower() == ".safetensors" and os.path.isfile(abs_path) and is_lora_path_contained(abs_path):
         return str(Path(abs_path).resolve())
 
     for root in get_lora_roots():
@@ -2694,12 +2676,10 @@ async def lora_download_api(request):
         if not version_id or not download_url or not filename:
             return web.json_response({"success": False, "error": "Missing parameters"}, status=400)
 
-        parsed_url = urllib.parse.urlparse(str(download_url))
-        if parsed_url.scheme != "https" or parsed_url.netloc.lower() not in ("civitai.com", "www.civitai.com", "civitai.red"):
-            return web.json_response({"success": False, "error": "Only Civitai HTTPS downloads are supported"}, status=400)
-            
         task_id = start_download_task(version_id, download_url, filename, metadata=metadata)
         return web.json_response({"success": True, "task_id": task_id})
+    except ValueError as e:
+        return web.json_response({"success": False, "error": str(e)}, status=400)
     except Exception as e:
         print(f"[Anima Tools] Download API error: {e}")
         return web.json_response({"success": False, "error": str(e)}, status=500)
@@ -3167,9 +3147,7 @@ def _download_remote_thumbnail(url: str, cache_key: str, width: int, job_key: st
             return
         if _find_remote_thumb_indexed_path(cache_key, width):
             return
-        req = urllib.request.Request(url, headers={"User-Agent": "ComfyUI-Anima-Tools/1.0"})
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = resp.read()
+        data = read_civitai_preview(url)
 
         img = Image.open(BytesIO(data)).convert("RGB")
         if width > 0 and img.width > width:
@@ -3194,6 +3172,10 @@ async def lora_remote_preview_api(request):
             width = 320
 
         source_url = request.query.get("url", "").strip()
+        if source_url:
+            parsed_url = urllib.parse.urlsplit(source_url)
+            if parsed_url.scheme != "https" or parsed_url.hostname not in CIVITAI_IMAGE_HOSTS or parsed_url.port not in (None, 443) or parsed_url.username or parsed_url.password:
+                return web.Response(status=400)
         url_hash = request.query.get("url_hash", "").strip()
         image_id = request.query.get("image_id", "").strip()
         miss_mode = request.query.get("miss", "").strip().lower()
@@ -3326,13 +3308,14 @@ async def lora_download_status_api(request):
 @PromptServer.instance.routes.get("/anima-tools/lora/config")
 async def lora_get_config_api(request):
     try:
-        config = dict(load_lora_config())
-        config["resolved_save_dir"] = get_lora_save_dir()
         custom_dir, custom_dir_valid, custom_dir_abs = get_custom_lora_dir_status()
-        config["custom_lora_dir"] = custom_dir
-        config["custom_lora_dir_valid"] = custom_dir_valid
-        config["custom_lora_dir_abs"] = custom_dir_abs if custom_dir_valid else ""
-        return web.json_response(config)
+        return web.json_response({
+            "has_civitai_api_key": bool(load_lora_config().get("civitai_api_key", "")),
+            "resolved_save_dir": get_lora_save_dir() if not custom_dir or custom_dir_valid else "",
+            "custom_lora_dir": custom_dir,
+            "custom_lora_dir_valid": custom_dir_valid,
+            "custom_lora_dir_abs": custom_dir_abs,
+        })
     except Exception as e:
         print(f"[Anima Tools] Get Config API error: {e}")
         return web.json_response({"error": str(e)}, status=500)
@@ -3347,19 +3330,29 @@ async def lora_save_config_api(request):
             "civitai_api_key": current_config.get("civitai_api_key", "")
         }
         if "custom_lora_dir" in body:
-            config["custom_lora_dir"] = body["custom_lora_dir"]
+            directory = body["custom_lora_dir"]
+            if not isinstance(directory, str):
+                raise ValueError("LoRA directory must be a string")
+            config["custom_lora_dir"] = validate_lora_directory(directory) if directory.strip() else ""
         if "civitai_api_key" in body:
+            if not isinstance(body["civitai_api_key"], str):
+                raise ValueError("Civitai API key must be a string")
             config["civitai_api_key"] = body["civitai_api_key"]
             
         success = save_lora_config(config)
+        if not success:
+            return web.json_response({"success": False, "error": "Could not save LoRA settings"}, status=500)
         custom_dir, custom_dir_valid, custom_dir_abs = get_custom_lora_dir_status()
         return web.json_response({
             "success": success,
+            "has_civitai_api_key": bool(config["civitai_api_key"]),
             "resolved_save_dir": get_lora_save_dir(),
             "custom_lora_dir": custom_dir,
             "custom_lora_dir_valid": custom_dir_valid,
             "custom_lora_dir_abs": custom_dir_abs if custom_dir_valid else ""
         })
+    except ValueError as e:
+        return web.json_response({"success": False, "error": str(e)}, status=400)
     except Exception as e:
         print(f"[Anima Tools] Save Config API error: {e}")
         return web.json_response({"success": False, "error": str(e)}, status=500)
