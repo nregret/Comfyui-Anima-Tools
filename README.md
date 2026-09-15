@@ -97,8 +97,12 @@
 *   **多源 CDN 智能切换：** 提供 `JsDelivr`、`GitHub Raw` 和 `Statically` 等多条图片 CDN 通道，用户可在面板中自由切换，确保样图快速加载。
 
 ### 🎲 5. 随机提示词整合节点 (Anima Prompt Composer)
-*   **运行时自动随机：** 工作流运行到节点时自动从全量画师、角色与服装数据中随机选择内容，不包含用户自定义项。
-*   **统一字符串输出：** 输出顺序固定为 **画师 -> 角色 -> 服装**，可单独禁用任意类别；角色支持 `trigger` 或 `trigger + tags` 两种输出模式。
+*   **运行时自动随机：** 工作流运行到节点时自动从全量画师、角色、服装、背景与姿势数据中随机选择内容，不包含用户自定义项。
+*   **统一字符串输出：** 输出顺序固定为 **画师 -> 角色 -> 服装 -> 背景 -> 姿势**，可单独禁用任意类别。
+*   **角色触发词 × 特征 Tags 随机组合：** 角色支持 `trigger`、`trigger_tags` 与 `trigger_random_tags` 三种模式。随机组合模式会剔除 `1boy` / `1girl` 等性别词以及发色、瞳色词后再随机抽取，可组合数量比原来高一个数量级。
+*   **保留角色身份特征：** 发色 / 瞳色等特征词会固定跟在触发词后面（同属性的冲突颜色只保留一个），并且不携带性别，方便做男女性转玩法。
+*   **服装多来源随机搭配：** 服装可来自内置图库、Danbooru 标签组或其它角色的 Tags。Danbooru 路径会从 **上装 + 下装 / 制服 / 传统服饰** 中三选一作为主服装，再叠加装饰、袜子与鞋子，避免穿搭自相冲突。
+*   **角色与服装种子可分离：** 主 `seed` 之外可单独设置角色种子与服装种子，锁定其中一项、另一项继续重抽。
 *   **节点内可折叠预览：** 节点上直接显示随机结果的文字提示词与 3:4 图片预览，并支持折叠隐藏预览区域。
 
 ### ⚙️ 6. 智能 Python 后端拼接 (Selector Plus Nodes)
@@ -169,12 +173,28 @@
     *   `separator` (String): 智能防错连接符。
 
 ### 4. 🎲 Anima Prompt Composer (随机提示词整合器)
-*   `enable_artist` / `enable_character` / `enable_clothing` (Boolean): 控制画师、角色、服装三个类别是否参与输出。
-*   `character_detail` (Combo: `trigger` / `trigger_tags`): 控制角色输出仅使用触发词，或使用触发词加完整特征。
+*   `enable_artist` / `enable_character` / `enable_clothing` / `enable_background` / `enable_pose` (Boolean): 控制画师、角色、服装、背景、姿势五个类别是否参与输出。
+*   `character_detail` (Combo: `trigger` / `trigger_tags` / `trigger_random_tags`):
+    *   `trigger`: 只输出角色触发词。
+    *   `trigger_tags`: 输出触发词加该角色全部特征 Tags。
+    *   `trigger_random_tags`: 输出触发词 + 随机抽取的部分特征 Tags，用于大幅扩展可组合数量。
 *   `seed` (Int): `-1` 表示每次运行自动随机；固定数值可获得可复现结果。
-*   `artist_count` (Int): 控制随机画师数量；角色与服装固定各随机 1 个。
+*   `artist_count` (Int): 控制随机画师数量；角色、服装、背景与姿势固定各随机 1 个。
+*   `character_seed` / `clothing_seed` (Int): `-1` 表示跟随主 `seed`，固定数值可单独锁定角色或服装，让另一项继续重抽。
+*   `character_tag_count` (Int): `trigger_random_tags` 模式下随机抽取的特征 Tags 数量。
+*   `character_keep_features` (Boolean): 是否把发色、瞳色等身份特征词固定跟在触发词后面（同属性的冲突颜色只保留一个，性别词始终不带）。
+*   `clothing_source` (Combo: `author` / `danbooru` / `character_tags` / `random`):
+    *   `author`: 使用内置服装图库（默认，保持原有行为）。
+    *   `danbooru`: 从 Danbooru 标签组中随机搭配服装。主服装在 **上装 + 下装 / 制服 / 传统服饰** 中三选一，再叠加装饰、袜子与鞋子。`uniform` / `traditional` 两个主服装池只保留整套服装，`geta`、`tabi`、`hood`、`cape`、`haori` 等单件与配饰已归入对应的鞋袜 / 上衣 / 配饰槽，不会再被当成整套服装而出现「没有主服装」或「两双鞋」的搭配。
+    *   `character_tags`: 借用其它角色官方 Tags 中属于服装的词。
+    *   `random`: 每次运行在以上三种来源中随机挑一种。
 *   `preview_collapsed` (Boolean): 控制节点上的随机结果预览是否折叠。
-*   输出为单个 `STRING`，顺序固定为 **画师 -> 角色 -> 服装**。
+*   输出为单个 `STRING`，顺序固定为 **画师 -> 角色 -> 服装 -> 背景 -> 姿势**。
+
+> [!NOTE]
+> 新增参数一律追加在 `resolved_prompt` 之后，因此旧工作流的 `widgets_values` 位置保持不变，升级后行为与升级前一致。
+>
+> 这些新增输入同时是**可选输入**（`optional`）而非必填：ComfyUI 校验时会对 `INPUT_TYPES` 中缺失的 `required` 输入报 `required_input_missing`，Python 参数默认值无法绕过该校验，所以若放在 `required`，3.2.9 保存的 API 工作流会直接校验失败。放在 `optional` 后，缺失时由节点签名在运行时补默认值，旧 API 工作流照常可用。
 
 ### 5. 🧩 Anima Multi LoRA Loader (多 LoRA 加载器)
 *   `model`: ComfyUI 标准模型输入。
@@ -205,7 +225,10 @@ Anima-Tools/
 │   ├── character_data.js            # 动漫角色发色、瞳色、作品系列、同人热度多维数据库
 │   ├── clothing_data.js             # 服装提示词与预览图数据库
 │   ├── character_official_data.json # 角色官方触发词与完整特征数据
+│   ├── danbooru_attire_data.json    # Danbooru 服装标签组（装饰/上装/下装/袜子/鞋子/制服/传统服饰）
 │   └── i18n.js                      # 多语言智能切换路由 (跟随 Comfy.Locale)
+├── tools/
+│   └── fetch_danbooru_attire.py     # 从 Danbooru 标签组 Wiki 重新生成服装标签数据
 └── locales/
     ├── en/
     │   ├── main.json
@@ -225,7 +248,9 @@ Anima-Tools/
     *   **致谢理由：** 提供了优质的动漫角色数据库与多维属性图鉴系统。本插件的角色多维度检索筛选（性别、发色、瞳色、同人热度、系列分类）核心数据结构与设计灵感来源于此。
 2.  **[Anima-Style-Explorer](https://github.com/ThetaCursed/Anima-Style-Explorer)** 🎨
     *   **致谢理由：** 提供了非常详尽的 **40,000+** Danbooru 画师数据库，让画师风格选择器拥有了坚实的数据根基。
-3.  **CircleStone Labs** 🧪
+3.  **[Danbooru](https://danbooru.donmai.us/wiki_pages/tag_group%3Aattire)** 👗
+    *   **致谢理由：** 提供了社区维护的服装标签组 Wiki（`tag group:attire`），本插件 Danbooru 服装搭配路径的分类与标签池均来源于此。
+4.  **CircleStone Labs** 🧪
     *   **致谢理由：** 感谢推出杰出的 **Anima 2B** 开源二次元大模型，正是由于该模型在二次元大模型领域的探索，激发了我们打造这款高效率提示词辅助工具的灵感。
 
 > 我们对所有致力于丰富 AI 绘画生态、为开源社区无私奉献的创作者和开发者们致以诚挚的敬意！

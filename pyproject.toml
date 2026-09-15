@@ -1,6 +1,6 @@
 [project]
 name = "comfyui-anima-tools"
-version = "3.2.9"
+version = "3.3.0"
 description = "ComfyUI nodes for anime artist, character, clothing, background, random prompt composition, and Anima LoRA search, download, and loading workflows"
 readme = "README.md"
 license = { text = "MIT" }

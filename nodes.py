@@ -715,6 +715,106 @@ class AnimaPromptComposer:
     SELECTION_PROPERTY = "anima_prompt_composer_selection"
     SELECTION_SECTIONS = ("artist", "character", "clothing", "background", "pose")
 
+    CHARACTER_DETAIL_MODES = ("trigger", "trigger_tags", "trigger_random_tags")
+    CLOTHING_SOURCES = ("author", "danbooru", "character_tags", "random")
+    DANBOORU_ATTIRE_FILE = "danbooru_attire_data.json"
+    DANBOORU_VOCABULARY_KEY = "vocabulary"
+    DANBOORU_SLOT_ORDER = ("decoration", "top", "bottom", "socks", "shoes", "uniform", "traditional")
+    # "top_bottom" pairs a random top with a random bottom and counts as a single
+    # outfit category, exactly like "uniform" and "traditional" do.
+    DANBOORU_MAIN_VARIANTS = ("top_bottom", "uniform", "traditional")
+    # Slot -> chance of being layered on top of the main outfit.  The plain
+    # "decoration" slot is always added, legwear and footwear are optional so that
+    # outfits do not all end up looking identical.
+    DANBOORU_LAYERED_SLOTS = (("decoration", 1.0), ("socks", 0.6), ("shoes", 0.6))
+
+    # Danbooru tags that describe the depicted person instead of the outfit.
+    GENDER_TAGS = frozenset(
+        (
+            "1boy",
+            "1girl",
+            "1other",
+            "2boys",
+            "2girls",
+            "androgynous",
+            "female",
+            "female focus",
+            "genderbend",
+            "male",
+            "male focus",
+            "multiple boys",
+            "multiple girls",
+        )
+    )
+    # Character identity clues: any word starting with one of these prefixes, or
+    # any tag containing one of the keywords, stays next to the trigger instead of
+    # being shuffled into the random tag pool.
+    CHARACTER_FEATURE_WORD_PREFIXES = ("eye", "hair")
+    CHARACTER_FEATURE_KEYWORDS = (
+        "ahoge",
+        "bangs",
+        "braid",
+        "braids",
+        "hair bun",
+        "hime cut",
+        "one side up",
+        "ponytail",
+        "sidelocks",
+        "twintails",
+        "updo",
+    )
+    # A character's official tag list is a union over thousands of posts, so it
+    # often holds several competing colourings ("grey eyes" *and* "purple eyes").
+    # Colour tags are collapsed down to a single random pick per attribute.
+    CHARACTER_FEATURE_COLOUR_TARGETS = ("eye", "eyes", "hair")
+    CHARACTER_COLOUR_WORDS = frozenset(
+        (
+            "aqua",
+            "black",
+            "blonde",
+            "blue",
+            "brown",
+            "cyan",
+            "gray",
+            "green",
+            "grey",
+            "indigo",
+            "lavender",
+            "magenta",
+            "maroon",
+            "orange",
+            "pink",
+            "purple",
+            "red",
+            "silver",
+            "teal",
+            "turquoise",
+            "violet",
+            "white",
+            "yellow",
+        )
+    )
+
+    # Every input that feeds the resolved prompt.  The queue hook can only draw a
+    # prompt while all of them hold a value: a linked input is still
+    # ``[node_id, output_index]`` until execution, see
+    # ``_resolve_anima_prompt_composer_nodes``.
+    QUEUE_RESOLVE_INPUTS = (
+        "enable_artist",
+        "enable_character",
+        "enable_clothing",
+        "enable_background",
+        "enable_pose",
+        "character_detail",
+        "seed",
+        "artist_count",
+        "character_seed",
+        "character_tag_count",
+        "character_keep_features",
+        "clothing_seed",
+        "clothing_source",
+    )
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -724,11 +824,28 @@ class AnimaPromptComposer:
                 "enable_clothing": ("BOOLEAN", {"default": True}),
                 "enable_background": ("BOOLEAN", {"default": True}),
                 "enable_pose": ("BOOLEAN", {"default": True}),
-                "character_detail": (["trigger", "trigger_tags"], {"default": "trigger"}),
+                "character_detail": (list(cls.CHARACTER_DETAIL_MODES), {"default": "trigger"}),
                 "seed": ("INT", {"default": -1, "min": -1, "max": 2147483647}),
                 "artist_count": ("INT", {"default": 1, "min": 0, "max": 20}),
                 "preview_collapsed": ("BOOLEAN", {"default": False}),
                 "resolved_prompt": ("STRING", {"multiline": True, "default": ""}),
+            },
+            # The 3.3.0 widgets are appended *here* rather than kept in `required`:
+            # ComfyUI answers a required input that is absent from a prompt with
+            # `required_input_missing`, and Python argument defaults do not bypass
+            # that check, so an API prompt saved with 3.2.9 would stop validating.
+            # A missing optional input is skipped by validation and filled in by
+            # the `compose_prompt` signature at execution time.  The frontend reads
+            # both dicts in order (required first, then optional), and every new
+            # name is appended to the end of its dict, so the widget order - and
+            # with it the `widgets_values` layout of saved workflows - is
+            # unchanged.  Keep this order in sync with _workflow_widget_index().
+            "optional": {
+                "character_seed": ("INT", {"default": -1, "min": -1, "max": 2147483647}),
+                "character_tag_count": ("INT", {"default": 3, "min": 0, "max": 30}),
+                "character_keep_features": ("BOOLEAN", {"default": True}),
+                "clothing_seed": ("INT", {"default": -1, "min": -1, "max": 2147483647}),
+                "clothing_source": (list(cls.CLOTHING_SOURCES), {"default": "author"}),
             },
             "hidden": {
                 "prompt": "PROMPT",
@@ -829,6 +946,99 @@ class AnimaPromptComposer:
             return shuffled
         return rng.sample(data, count)
 
+    def _section_rng(self, override_seed, master_rng):
+        """RNG used by one section.
+
+        A negative override keeps the section on the shared master RNG, which
+        preserves the historical draw order.  A non negative override gives the
+        section its own reproducible stream, so character and clothing seeds can be
+        locked and rerolled independently of each other.
+        """
+        override = self._int_value(override_seed, -1)
+        if override < 0:
+            return master_rng
+        import random
+
+        return random.Random(override)
+
+    def _dedupe_prompt_tokens(self, value):
+        unique = []
+        seen = set()
+        for part in self._split_prompt_tokens(value):
+            key = part.lower()
+            if key and key not in seen:
+                seen.add(key)
+                unique.append(part)
+        return unique
+
+    def _is_gender_tag(self, tag):
+        return self._normalize_text(tag) in self.GENDER_TAGS
+
+    def _is_character_feature_tag(self, tag):
+        text = self._normalize_text(tag)
+        if not text:
+            return False
+        for word in text.split():
+            if word.startswith(self.CHARACTER_FEATURE_WORD_PREFIXES):
+                return True
+        return any(keyword in text for keyword in self.CHARACTER_FEATURE_KEYWORDS)
+
+    def _split_character_tags(self, tags):
+        """Split one character's official tags into identity clues and outfit tags."""
+        features = []
+        outfit = []
+        for tag in self._dedupe_prompt_tokens(tags):
+            if self._is_gender_tag(tag):
+                continue
+            if self._is_character_feature_tag(tag):
+                features.append(tag)
+            else:
+                outfit.append(tag)
+        return features, outfit
+
+    def _character_feature_colour_group(self, tag):
+        """Return ``"eyes"``/``"hair"`` when a tag is a competing colouring, else None."""
+        words = self._normalize_text(tag).split()
+        if len(words) < 2 or words[-1] not in self.CHARACTER_FEATURE_COLOUR_TARGETS:
+            return None
+        if not any(word in self.CHARACTER_COLOUR_WORDS for word in words):
+            return None
+        return words[-1]
+
+    def _collapse_character_feature_colours(self, value, rng):
+        parts = self._dedupe_prompt_tokens(value)
+        groups = {}
+        for tag in parts:
+            group = self._character_feature_colour_group(tag)
+            if group:
+                groups.setdefault(group, []).append(tag)
+
+        chosen = {}
+        for group, tags in groups.items():
+            chosen[group] = rng.choice(tags) if rng is not None and len(tags) > 1 else tags[0]
+
+        collapsed = []
+        emitted = set()
+        for tag in parts:
+            group = self._character_feature_colour_group(tag)
+            if not group:
+                collapsed.append(tag)
+                continue
+            if group in emitted:
+                continue
+            emitted.add(group)
+            collapsed.append(chosen[group])
+        return collapsed
+
+    def _sample_parts(self, value, count, rng):
+        unique = self._dedupe_prompt_tokens(value)
+        count = max(0, self._int_value(count, 0))
+        if count <= 0 or not unique or rng is None:
+            return []
+        if count >= len(unique):
+            return unique
+        return rng.sample(unique, count)
+
     def _artist_entry(self, item):
         name = str(item.get("name") or "").strip()
         if not name:
@@ -866,6 +1076,8 @@ class AnimaPromptComposer:
             if item.get("eye"):
                 fallback.append(f"{item.get('eye')} eyes")
             tags = fallback
+        tags = self._dedupe_prompt_tokens(tags)
+        feature_parts, outfit_parts = self._split_character_tags(tags)
         raw_name = f"{name}, {copyright}" if copyright else name
         return {
             "section": "character",
@@ -875,6 +1087,8 @@ class AnimaPromptComposer:
             "preview": f"https://blobs.animadex.net/Outputs/thumbs/{urllib.parse.quote(raw_name, safe='')}.webp",
             "trigger_parts": self._split_prompt_tokens(trigger),
             "tag_parts": tags,
+            "feature_parts": feature_parts,
+            "outfit_parts": outfit_parts,
         }
 
     def _clothing_entry(self, item):
@@ -919,17 +1133,137 @@ class AnimaPromptComposer:
             "prompt_parts": self._split_prompt_tokens(item.get("tags")),
         }
 
-    def _entry_parts(self, entry, section, character_detail):
-        if section == "character":
-            parts = self._split_prompt_tokens(entry.get("trigger_parts"))
-            if character_detail == "trigger_tags":
-                parts.extend(self._split_prompt_tokens(entry.get("tag_parts")))
-            return parts
-        return self._split_prompt_tokens(entry.get("prompt_parts"))
+    @classmethod
+    def _load_danbooru_pools(cls):
+        """Danbooru attire tag pools bundled with the node, keyed by slot."""
+        data = cls._load_json_object(cls.DANBOORU_ATTIRE_FILE)
+        pools = {}
+        for slot in cls.DANBOORU_SLOT_ORDER:
+            tags = data.get(slot)
+            pools[slot] = [tag.strip() for tag in tags if isinstance(tag, str) and tag.strip()] if isinstance(tags, list) else []
+        return pools
 
-    def _append_parts(self, output_parts, seen, entries, section, character_detail):
+    @classmethod
+    def _load_danbooru_vocabulary(cls):
+        """Every Danbooru attire tag, used as a wearable-tag whitelist."""
+        data = cls._load_json_object(cls.DANBOORU_ATTIRE_FILE)
+        words = data.get(cls.DANBOORU_VOCABULARY_KEY)
+        if not isinstance(words, list):
+            return set()
+        return {word.strip().lower() for word in words if isinstance(word, str) and word.strip()}
+
+    def _danbooru_clothing_entry(self, slot, tag):
+        return {
+            "section": "clothing",
+            "key": f"clothing:danbooru:{slot}:{tag}",
+            "title": tag,
+            "subtitle": f"danbooru {slot}",
+            "preview": "",
+            "prompt_parts": [tag],
+        }
+
+    def _danbooru_clothing_entries(self, rng):
+        """Build one outfit from the Danbooru tag groups.
+
+        Exactly one main outfit is drawn - a random top paired with a random
+        bottom, a uniform or a traditional garment - so the categories can never
+        contradict each other.  Decoration, legwear and footwear are layered on
+        top afterwards.
+        """
+        pools = self._load_danbooru_pools()
+        if not pools.get("top") or not pools.get("bottom") or not pools.get("uniform") or not pools.get("traditional"):
+            return []
+
+        entries = []
+        variant = rng.choice(self.DANBOORU_MAIN_VARIANTS)
+        if variant == "top_bottom":
+            entries.append(self._danbooru_clothing_entry("top", rng.choice(pools["top"])))
+            entries.append(self._danbooru_clothing_entry("bottom", rng.choice(pools["bottom"])))
+        else:
+            entries.append(self._danbooru_clothing_entry(variant, rng.choice(pools[variant])))
+
+        for slot, probability in self.DANBOORU_LAYERED_SLOTS:
+            pool = pools.get(slot) or []
+            if not pool:
+                continue
+            if probability < 1 and rng.random() >= probability:
+                continue
+            entries.append(self._danbooru_clothing_entry(slot, rng.choice(pool)))
+        return entries
+
+    def _character_tag_clothing_entries(self, character_data, official_data, rng, attempts=40):
+        """Reuse another character's official tags as the outfit.
+
+        The trigger, gender words and eyes/hair words are left out, and what is
+        left is intersected with the Danbooru attire vocabulary so that body or
+        pose tags (``beard``, ``large breasts``, ...) never end up as clothing.
+        Only about a fifth of the roster carries two or more wearable tags, so the
+        draw is retried a few dozen times before giving up.
+        """
+        vocabulary = self._load_danbooru_vocabulary()
+        for _ in range(max(1, self._int_value(attempts, 1))):
+            items = self._pick_items(character_data, 1, rng)
+            if not items:
+                return []
+            entry = self._character_entry(items[0], official_data)
+            if not entry:
+                continue
+            outfit_parts = self._dedupe_prompt_tokens(entry.get("outfit_parts"))
+            if vocabulary:
+                outfit_parts = [tag for tag in outfit_parts if tag.lower() in vocabulary]
+            if len(outfit_parts) < 2:
+                continue
+            return [
+                {
+                    "section": "clothing",
+                    "key": f"clothing:character_tags:{entry['key']}",
+                    "title": entry["title"],
+                    "subtitle": entry.get("subtitle") or "",
+                    "preview": entry.get("preview") or "",
+                    "prompt_parts": outfit_parts,
+                }
+            ]
+        return []
+
+    def _resolve_clothing_entries(self, clothing_data, character_data, official_data, clothing_source, rng):
+        source = str(clothing_source or "")
+        if source not in self.CLOTHING_SOURCES:
+            source = self.CLOTHING_SOURCES[0]
+        if source == "random":
+            source = rng.choice(tuple(name for name in self.CLOTHING_SOURCES if name != "random"))
+
+        if source == "danbooru":
+            entries = self._danbooru_clothing_entries(rng)
+            if entries:
+                return entries
+
+        if source == "character_tags":
+            entries = self._character_tag_clothing_entries(character_data, official_data, rng)
+            if entries:
+                return entries
+
+        return [entry for entry in (self._clothing_entry(item) for item in self._pick_items(clothing_data, 1, rng)) if entry]
+
+    def _entry_parts(self, entry, section, character_detail, rng=None, character_options=None):
+        if section != "character":
+            return self._split_prompt_tokens(entry.get("prompt_parts"))
+
+        parts = self._split_prompt_tokens(entry.get("trigger_parts"))
+        if character_detail == "trigger_tags":
+            parts.extend(self._split_prompt_tokens(entry.get("tag_parts")))
+        elif character_detail == "trigger_random_tags":
+            options = character_options or {}
+            # Eyes/hair words ride along with the trigger so the character keeps
+            # looking like itself, while the remaining tags are reshuffled to
+            # multiply the reachable combinations.
+            if self._truthy(options.get("keep_features"), True):
+                parts.extend(self._collapse_character_feature_colours(entry.get("feature_parts"), rng))
+            parts.extend(self._sample_parts(entry.get("outfit_parts"), options.get("tag_count", 0), rng))
+        return parts
+
+    def _append_parts(self, output_parts, seen, entries, section, character_detail, rng=None, character_options=None):
         for entry in entries:
-            for part in self._entry_parts(entry, section, character_detail):
+            for part in self._entry_parts(entry, section, character_detail, rng, character_options):
                 key = part.lower()
                 if key and key not in seen:
                     seen.add(key)
@@ -947,6 +1281,11 @@ class AnimaPromptComposer:
             "artist_count",
             "preview_collapsed",
             "resolved_prompt",
+            "character_seed",
+            "character_tag_count",
+            "character_keep_features",
+            "clothing_seed",
+            "clothing_source",
         ]
         try:
             return order.index(name)
@@ -1081,14 +1420,19 @@ class AnimaPromptComposer:
 
     def _resolve_prompt_data(
         self,
-        enable_artist,
-        enable_character,
-        enable_clothing,
-        enable_background,
-        enable_pose,
-        character_detail,
-        seed,
-        artist_count,
+        enable_artist=True,
+        enable_character=True,
+        enable_clothing=True,
+        enable_background=True,
+        enable_pose=True,
+        character_detail="trigger",
+        seed=-1,
+        artist_count=1,
+        character_seed=-1,
+        character_tag_count=3,
+        character_keep_features=True,
+        clothing_seed=-1,
+        clothing_source="author",
     ):
         import random
 
@@ -1101,28 +1445,44 @@ class AnimaPromptComposer:
 
         seed_value = self._int_value(seed, -1)
         rng = random.SystemRandom() if seed_value < 0 else random.Random(seed_value)
+        character_rng = self._section_rng(character_seed, rng)
+        clothing_rng = self._section_rng(clothing_seed, rng)
 
+        # Draw order stays artist -> character -> clothing -> background -> pose so
+        # that existing fixed seeds keep producing the exact same prompt.
         artist_items = self._pick_items(artist_data, self._int_value(artist_count, 1), rng) if self._truthy(enable_artist, True) else []
-        character_items = self._pick_items(character_data, 1, rng) if self._truthy(enable_character, True) else []
-        clothing_items = self._pick_items(clothing_data, 1, rng) if self._truthy(enable_clothing, True) else []
+        character_items = self._pick_items(character_data, 1, character_rng) if self._truthy(enable_character, True) else []
+        character_entries = [entry for entry in (self._character_entry(item, official_data) for item in character_items) if entry]
+        if self._truthy(enable_clothing, True):
+            clothing_entries = self._resolve_clothing_entries(
+                clothing_data, character_data, official_data, clothing_source, clothing_rng
+            )
+        else:
+            clothing_entries = []
         background_items = self._pick_items(background_data, 1, rng) if self._truthy(enable_background, True) else []
         pose_items = self._pick_items(pose_data, 1, rng) if self._truthy(enable_pose, True) else []
 
         selected = {
             "artist": [entry for entry in (self._artist_entry(item) for item in artist_items) if entry],
-            "character": [entry for entry in (self._character_entry(item, official_data) for item in character_items) if entry],
-            "clothing": [entry for entry in (self._clothing_entry(item) for item in clothing_items) if entry],
+            "character": character_entries,
+            "clothing": clothing_entries,
             "background": [entry for entry in (self._background_entry(item) for item in background_items) if entry],
             "pose": [entry for entry in (self._pose_entry(item) for item in pose_items) if entry],
         }
 
         output_parts = []
         seen = set()
-        self._append_parts(output_parts, seen, selected["artist"], "artist", character_detail)
-        self._append_parts(output_parts, seen, selected["character"], "character", character_detail)
-        self._append_parts(output_parts, seen, selected["clothing"], "clothing", character_detail)
-        self._append_parts(output_parts, seen, selected["background"], "background", character_detail)
-        self._append_parts(output_parts, seen, selected["pose"], "pose", character_detail)
+        character_options = {
+            "tag_count": self._int_value(character_tag_count, 0),
+            "keep_features": self._truthy(character_keep_features, True),
+        }
+        self._append_parts(output_parts, seen, selected["artist"], "artist", character_detail, rng)
+        self._append_parts(
+            output_parts, seen, selected["character"], "character", character_detail, character_rng, character_options
+        )
+        self._append_parts(output_parts, seen, selected["clothing"], "clothing", character_detail, rng)
+        self._append_parts(output_parts, seen, selected["background"], "background", character_detail, rng)
+        self._append_parts(output_parts, seen, selected["pose"], "pose", character_detail, rng)
 
         text = ", ".join(output_parts)
         if text:
@@ -1155,41 +1515,43 @@ class AnimaPromptComposer:
         prompt=None,
         extra_pnginfo=None,
         unique_id=None,
+        character_seed=-1,
+        character_tag_count=3,
+        character_keep_features=True,
+        clothing_seed=-1,
+        clothing_source="author",
     ):
         seed_value = self._int_value(seed, -1)
         text = self._extract_resolved_prompt_text(resolved_prompt)
+
+        resolve_kwargs = {
+            "enable_artist": enable_artist,
+            "enable_character": enable_character,
+            "enable_clothing": enable_clothing,
+            "enable_background": enable_background,
+            "enable_pose": enable_pose,
+            "character_detail": character_detail,
+            "artist_count": artist_count,
+            "character_seed": character_seed,
+            "character_tag_count": character_tag_count,
+            "character_keep_features": character_keep_features,
+            "clothing_seed": clothing_seed,
+            "clothing_source": clothing_source,
+        }
 
         # resolved_prompt is persisted in the workflow so the UI can show the
         # exact result chosen for seed=-1.  It must not override a fixed seed:
         # in particular, a seed supplied through a link cannot be resolved by
         # the pre-queue hook and the persisted text may belong to another run.
         if seed_value >= 0:
-            selected, text = self._resolve_prompt_data(
-                enable_artist,
-                enable_character,
-                enable_clothing,
-                enable_background,
-                enable_pose,
-                character_detail,
-                seed_value,
-                artist_count,
-            )
+            selected, text = self._resolve_prompt_data(seed=seed_value, **resolve_kwargs)
         elif text:
             selected = (
                 self._selection_from_workflow(extra_pnginfo, unique_id, text)
                 or self._normalize_selected(self._parse_selection_payload(resolved_prompt), text)
             )
         else:
-            selected, text = self._resolve_prompt_data(
-                enable_artist,
-                enable_character,
-                enable_clothing,
-                enable_background,
-                enable_pose,
-                character_detail,
-                seed,
-                artist_count,
-            )
+            selected, text = self._resolve_prompt_data(seed=seed, **resolve_kwargs)
         selected["_resolved_prompt"] = text
         self._record_resolved_prompt(prompt, extra_pnginfo, unique_id, text, selected)
 
@@ -1521,6 +1883,60 @@ def _resolve_anima_prompt_plus_clip_nodes(prompt, extra_pnginfo, prompt_plus):
         }
     return updates
 
+def _resolve_anima_prompt_composer_nodes(prompt, extra_pnginfo, composer):
+    """Draw the random prompt of every ``AnimaPromptComposer`` before the queue.
+
+    Resolving here is what keeps the ``resolved_prompt`` widget, the node preview
+    and the prompt that finally runs in sync while ``seed`` is ``-1``, because
+    ``compose_prompt`` reuses the text this hook stored.
+
+    That only holds while every relevant input already has a value.  A linked
+    input is still ``[node_id, output_index]`` at this point, so resolving anyway
+    would persist a prompt built from the widget defaults - a fixed
+    ``character_seed`` of 4242 would be read as ``-1`` and the character would
+    keep changing - and ``compose_prompt`` would then reuse that stale text
+    instead of the value that was evaluated.  Such nodes are deferred to
+    execution, and any text persisted by an earlier run is dropped so that it
+    cannot be reused either.
+    """
+    if not isinstance(prompt, dict):
+        return
+
+    for node_id, node in list(prompt.items()):
+        if not isinstance(node, dict) or node.get("class_type") != "AnimaPromptComposer":
+            continue
+        inputs = node.setdefault("inputs", {})
+        if not isinstance(inputs, dict):
+            continue
+
+        if any(isinstance(inputs.get(name), list) for name in composer.QUEUE_RESOLVE_INPUTS):
+            inputs["resolved_prompt"] = ""
+            continue
+
+        selected, resolved_prompt = composer._resolve_prompt_data(
+            enable_artist=inputs.get("enable_artist", True),
+            enable_character=inputs.get("enable_character", True),
+            enable_clothing=inputs.get("enable_clothing", True),
+            enable_background=inputs.get("enable_background", True),
+            enable_pose=inputs.get("enable_pose", True),
+            character_detail=inputs.get("character_detail", "trigger"),
+            seed=inputs.get("seed", -1),
+            artist_count=inputs.get("artist_count", 1),
+            character_seed=inputs.get("character_seed", -1),
+            character_tag_count=inputs.get("character_tag_count", 3),
+            character_keep_features=inputs.get("character_keep_features", True),
+            clothing_seed=inputs.get("clothing_seed", -1),
+            clothing_source=inputs.get("clothing_source", "author"),
+        )
+        inputs["resolved_prompt"] = resolved_prompt
+        composer._record_resolved_prompt(
+            prompt,
+            extra_pnginfo,
+            node_id,
+            resolved_prompt,
+            selected,
+        )
+
 def _install_anima_prompt_composer_queue_resolver():
     if getattr(PromptServer.instance, "_anima_prompt_composer_resolver_installed", False):
         return
@@ -1553,31 +1969,7 @@ def _install_anima_prompt_composer_queue_resolver():
                     json_data.get("client_id"),
                 )
 
-            for node_id, node in list(prompt.items()):
-                if not isinstance(node, dict) or node.get("class_type") != "AnimaPromptComposer":
-                    continue
-                inputs = node.setdefault("inputs", {})
-                if not isinstance(inputs, dict):
-                    continue
-
-                selected, resolved_prompt = composer._resolve_prompt_data(
-                    inputs.get("enable_artist", True),
-                    inputs.get("enable_character", True),
-                    inputs.get("enable_clothing", True),
-                    inputs.get("enable_background", True),
-                    inputs.get("enable_pose", True),
-                    inputs.get("character_detail", "trigger"),
-                    inputs.get("seed", -1),
-                    inputs.get("artist_count", 1),
-                )
-                inputs["resolved_prompt"] = resolved_prompt
-                composer._record_resolved_prompt(
-                    prompt,
-                    extra_pnginfo,
-                    node_id,
-                    resolved_prompt,
-                    selected,
-                )
+            _resolve_anima_prompt_composer_nodes(prompt, extra_pnginfo, composer)
         except Exception as e:
             print(f"[Anima Tools] Failed to resolve random prompt metadata before queue: {e}")
         return json_data

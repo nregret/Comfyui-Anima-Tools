@@ -342,10 +342,11 @@
       },
       "character_detail": {
         "name": "角色细节",
-        "tooltip": "选择角色输出只使用触发词，还是触发词加完整特征 Tags。",
+        "tooltip": "选择角色输出使用触发词、触发词加完整特征 Tags，还是触发词加随机抽取的部分特征 Tags。",
         "values": {
           "trigger": "仅触发词",
-          "trigger_tags": "触发词 + Tags"
+          "trigger_tags": "触发词 + Tags",
+          "trigger_random_tags": "触发词 + 随机 Tags"
         }
       },
       "seed": {
@@ -363,6 +364,32 @@
       "resolved_prompt": {
         "name": "上次随机结果",
         "tooltip": "保存该节点最近一次实际随机生成的最终提示词。执行时会自动更新，并写入工作流 metadata。"
+      },
+      "character_seed": {
+        "name": "角色随机种子",
+        "tooltip": "使用 -1 表示跟随主种子；填入固定数字可单独锁定角色，其余部分继续重抽。"
+      },
+      "character_tag_count": {
+        "name": "角色随机 Tags 数量",
+        "tooltip": "「触发词 + 随机 Tags」模式下，从该角色剩余特征 Tags 中随机抽取多少个。"
+      },
+      "character_keep_features": {
+        "name": "保留角色特征词",
+        "tooltip": "开启后会把该角色的发色、瞳色等身份特征词固定跟在触发词后面（同类的冲突颜色只保留一个），性别词始终不带。"
+      },
+      "clothing_seed": {
+        "name": "服装随机种子",
+        "tooltip": "使用 -1 表示跟随主种子；填入固定数字可单独锁定服装，其余部分继续重抽。"
+      },
+      "clothing_source": {
+        "name": "服装来源",
+        "tooltip": "内置服装库：使用作者整理好的服装图库。Danbooru 标签组：按标签组随机搭配，上装+下装 / 制服 / 传统服饰三选一，再叠加装饰、袜子与鞋子。角色 Tags 借用：取其它角色标签里属于服装的词。随机来源：每次运行随机挑一种。",
+        "values": {
+          "author": "内置服装库",
+          "danbooru": "Danbooru 标签组",
+          "character_tags": "角色 Tags 借用",
+          "random": "随机来源"
+        }
       }
     },
     "outputs": {
