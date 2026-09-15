@@ -60,6 +60,15 @@ WIDGET_DEFAULTS = {
     "clothing_source": "author",
 }
 
+# `widgets_values` as the frontend writes it: its own `control_after_generate`
+# combo is inserted right after `seed` and serialized in the workflow, so it takes
+# a position without being sent to the prompt.
+SERIALIZED_WIDGET_ORDER = (
+    *WIDGET_ORDER[:7],
+    "control_after_generate",
+    *WIDGET_ORDER[7:],
+)
+
 RESOLVE_INPUT_NAMES = tuple(
     name for name in WIDGET_ORDER if name not in ("preview_collapsed", "resolved_prompt")
 )
@@ -109,7 +118,7 @@ class AnimaPromptComposerQueueResolverTests(unittest.TestCase):
                     {
                         "id": int(NODE_ID),
                         "type": "AnimaPromptComposer",
-                        "widgets_values": [values[name] for name in WIDGET_ORDER],
+                        "widgets_values": [values.get(name) for name in SERIALIZED_WIDGET_ORDER],
                     }
                 ]
             }
@@ -131,7 +140,7 @@ class AnimaPromptComposerQueueResolverTests(unittest.TestCase):
             inputs[name] = list(LINK)
 
         prompt = {NODE_ID: {"class_type": "AnimaPromptComposer", "inputs": inputs}}
-        self.resolve_queue(prompt, self.extra_pnginfo, self.composer)
+        self.queued_updates = self.resolve_queue(prompt, self.extra_pnginfo, self.composer)
         self.queued_resolved_prompt = prompt[NODE_ID]["inputs"]["resolved_prompt"]
 
         evaluated = dict(inputs)
@@ -237,6 +246,30 @@ class AnimaPromptComposerQueueResolverTests(unittest.TestCase):
 
         self.assertTrue(self.queued_resolved_prompt)
         self.assertEqual(result["result"][0], self.queued_resolved_prompt)
+
+    # --- the draw is reported so the preview follows the run ---------------
+
+    def test_the_queue_reports_the_draw_because_a_cached_node_is_not_executed(self):
+        """An unchanged node is answered from ComfyUI's cache: no run, no `ui`.
+
+        Without this report the preview would keep the thumbnails of an earlier
+        draw - change the seed, run, change it back, run - because a cache hit
+        never reaches the client.
+        """
+        self.start_workflow(seed=1234)
+
+        result = self.cycle()
+
+        self.assertEqual(set(self.queued_updates), {NODE_ID})
+        self.assertEqual(self.queued_updates[NODE_ID], self.selected(result))
+        self.assertEqual(self.queued_updates[NODE_ID]["_resolved_prompt"], self.queued_resolved_prompt)
+
+    def test_a_deferred_draw_is_not_reported_because_it_is_not_known_yet(self):
+        self.start_workflow(seed=-1)
+
+        self.cycle({"character_seed": 4242})
+
+        self.assertEqual(self.queued_updates, {})
 
     # --- a changed link must not reuse the previous run's prompt -----------
 

@@ -1,5 +1,7 @@
 import { app } from "../../scripts/app.js";
+import { api } from "../../scripts/api.js";
 import { t } from "./i18n.js";
+import { repairComposerWidgetValues } from "./anima_prompt_composer_defaults.js";
 import { getEntryPreviewUrl } from "./anima_prompt_composer_preview.js";
 import { enablePartialExecutionSeedControl } from "./anima_prompt_composer_seed_control.js";
 
@@ -19,6 +21,30 @@ const SELECTION_PROPERTY = "anima_prompt_composer_selection";
 
 app.registerExtension({
     name: "AnimaPromptComposer.extension",
+
+    async setup() {
+        // ComfyUI answers an unchanged node from its cache and does not execute it,
+        // so its `ui` payload - the one that carries the preview below - is never
+        // sent: change the seed, run, change it back, run, and the thumbnails stay
+        // on the previous seed. The queue hook draws the prompt before the queue
+        // anyway, and it now hands that draw over so the preview always shows the
+        // result of the run that is starting.
+        api.addEventListener("anima.prompt_composer_selection", ({ detail }) => {
+            const updates = detail?.nodes;
+            if (!updates || typeof updates !== "object") return;
+            for (const [nodeId, selection] of Object.entries(updates)) {
+                const node = app.graph?.getNodeById?.(Number(nodeId))
+                    || app.graph?.getNodeById?.(nodeId);
+                if (!node || node.type !== "AnimaPromptComposer") continue;
+                if (!setComposerSelection(node, selection)) continue;
+                if (typeof selection._resolved_prompt === "string") {
+                    setWidgetValue(node, "resolved_prompt", selection._resolved_prompt);
+                }
+                node._animaComposerHasRun = true;
+                updateComposerLayout(node);
+            }
+        });
+    },
 
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name !== "AnimaPromptComposer") return;
@@ -71,6 +97,9 @@ function setupComposerNode(node) {
     if (!node) return;
     node._animaComposerImages = node._animaComposerImages || new Map();
     enablePartialExecutionSeedControl(getWidget(node, "seed"));
+    // A widget that was added after this workflow was saved comes back as `null`,
+    // which the queue rejects before the node runs; give it its default again.
+    repairComposerWidgetValues(node);
     hydrateComposerResolvedState(node);
     hideInternalWidgets(node);
     ensureComposerControls(node);

@@ -862,15 +862,36 @@ class AnimaPromptComposer:
 
     @classmethod
     def IS_CHANGED(cls, *args, **kwargs):
+        """Tell ComfyUI whether the prompt drawn by the previous run may be reused.
+
+        Only *constants* reach this method: an input driven by a link is passed as
+        ``None`` (``execution.py::IsChangedCache.get`` calls
+        ``get_input_data(..., execution_list=None)``, "we only want constants in
+        IS_CHANGED"), so the value of a linked seed is unknown here.  Answering
+        with a timestamp in that case marked the node as changed on every queue -
+        even when the link carried a fixed seed - so the node and everything
+        downstream of it re-ran on every Run and no fixed seed could ever produce
+        a cached image.
+        """
         import hashlib
         import json
         import time
 
+        seed = kwargs.get("seed", -1)
+        if seed is None or isinstance(seed, list):
+            # A link (plain links arrive as ``None``, ``rawLink``/v3 ones as a
+            # list): its value only exists at execution time.  A constant answer
+            # leaves the decision to ComfyUI's own signature, which includes the
+            # link *and* the upstream node's signature - an upstream that changes
+            # still invalidates this node, an unchanged one is cached.
+            return "linked"
         try:
-            seed = int(kwargs.get("seed", -1))
+            seed = int(seed)
         except Exception:
             seed = -1
         if seed < 0:
+            # The draw itself is random, so a cached prompt would freeze the
+            # "re-draw on every run" behaviour of seed=-1 forever.
             return time.time()
 
         cache_kwargs = {key: value for key, value in kwargs.items() if key not in ("preview_collapsed", "resolved_prompt")}
@@ -1270,6 +1291,16 @@ class AnimaPromptComposer:
                     output_parts.append(part)
 
     def _workflow_widget_index(self, name):
+        """Index of ``name`` in the positional ``widgets_values`` of the frontend.
+
+        This is *not* the ``INPUT_TYPES`` order: the frontend injects its own
+        ``control_after_generate`` combo right after ``seed``, so every widget
+        below it is shifted by one.  ``widgets_values`` is positional, so an order
+        that ignores that combo writes into the slot of the next widget - saved
+        workflows confirm it (``[..., 150, "fixed", 1, false, "<prompt>", null]``:
+        the control combo holds index 7 and a drawn prompt once landed in the
+        ``preview_collapsed`` slot because this list said 9 for ``resolved_prompt``).
+        """
         order = [
             "enable_artist",
             "enable_character",
@@ -1278,6 +1309,9 @@ class AnimaPromptComposer:
             "enable_pose",
             "character_detail",
             "seed",
+            # Selected by the frontend for the widget named "seed"; not declared
+            # by this node, but it does occupy a slot in `widgets_values`.
+            "control_after_generate",
             "artist_count",
             "preview_collapsed",
             "resolved_prompt",
@@ -1293,12 +1327,22 @@ class AnimaPromptComposer:
             return -1
 
     def _set_workflow_widget_value(self, workflow_node, widget_name, value):
+        """Store ``value`` in the positional ``widgets_values`` of a node.
+
+        A workflow saved by another frontend version can keep a different widget
+        at that index, so a slot that already holds something of another kind is
+        left untouched instead of being overwritten - that is how a drawn prompt
+        ended up in a boolean slot and how a stale index turned every later widget
+        of the node into a ``null``.
+        """
         if not isinstance(workflow_node, dict):
             return
         widgets_values = workflow_node.get("widgets_values")
         if isinstance(widgets_values, list):
             index = self._workflow_widget_index(widget_name)
             if index < 0:
+                return
+            if index < len(widgets_values) and not isinstance(widgets_values[index], type(value)):
                 return
             while len(widgets_values) <= index:
                 widgets_values.append("")
@@ -1417,6 +1461,69 @@ class AnimaPromptComposer:
             return int(value)
         except Exception:
             return default
+
+    @classmethod
+    def sanitize_inputs(cls, inputs):
+        """Replace input values that ``validate_inputs`` cannot convert with defaults.
+
+        The frontend stores a widget it has no value for as ``null`` (its widget
+        serialization writes ``value ?? null``) and restores a saved
+        ``widgets_values`` array by position, so a workflow saved with an older
+        widget layout hands every widget added since - the five inputs added in
+        3.3.0 are exactly such widgets - whatever sat at that index.  The value
+        then reaches the queue as a literal ``None`` and ComfyUI's
+        ``validate_inputs`` converts literals with ``int()``/``float()``/``str()``/
+        ``bool()`` *before* the node runs, rejecting the whole prompt:
+
+            Failed to convert an input value to a INT value: character_seed, None
+
+        Nothing inside the node can catch that, so the value is repaired on the
+        queue hook instead (``_resolve_anima_prompt_composer_nodes``).  Links
+        (``[node_id, output_index]``) are left alone - they are resolved after
+        execution - and so is every value the validator already accepts.  Returns
+        the names that were replaced, for logging and tests.
+        """
+        if not isinstance(inputs, dict):
+            return []
+        input_types = cls.INPUT_TYPES()
+        replaced = []
+        for category in ("required", "optional"):
+            for name, spec in input_types.get(category, {}).items():
+                if name not in inputs:
+                    continue
+                value = inputs[name]
+                if isinstance(value, list):  # a link, resolved at execution
+                    continue
+                if cls._input_value_survives_validation(spec, value):
+                    continue
+                default = spec[1].get("default")
+                if default is None:
+                    continue  # nothing to fall back to; leave it to ComfyUI
+                inputs[name] = default
+                replaced.append(name)
+        return replaced
+
+    @staticmethod
+    def _input_value_survives_validation(spec, value):
+        """Port of the conversions in ``execution.py::validate_inputs``.
+
+        ``None`` never survives: it raises for ``INT``/``FLOAT`` and is silently
+        coerced to ``"None"`` / ``False`` for the others, which is not what "the
+        widget has no value" should mean either.
+        """
+        if value is None:
+            return False
+        declared = spec[0]
+        if isinstance(declared, (list, tuple)):  # COMBO: the value has to be listed
+            return value in declared
+        if declared in ("INT", "FLOAT"):
+            try:
+                int(value) if declared == "INT" else float(value)
+            except (TypeError, ValueError, OverflowError):
+                return False
+            return True
+        # str() and bool() accept anything, and no other type is converted.
+        return True
 
     def _resolve_prompt_data(
         self,
@@ -1886,19 +1993,35 @@ def _resolve_anima_prompt_composer_nodes(prompt, extra_pnginfo, composer):
     would persist a prompt built from the widget defaults - a fixed
     ``character_seed`` of 4242 would be read as ``-1`` and the character would
     keep changing - and ``compose_prompt`` would then reuse that stale text
-    instead of the value that was evaluated.  Such nodes are deferred to
+    instead of the value that was evaluated.      Such nodes are deferred to
     execution, and any text persisted by an earlier run is dropped so that it
     cannot be reused either.
+
+    Widgets that hold no value at all (the ``null`` a frontend writes for a widget
+    that did not exist when the workflow was saved, see ``sanitize_inputs``) are
+    repaired here too: ``validate_inputs`` refuses the prompt otherwise, before the
+    node gets a chance to apply its own defaults.
+
+    Returns ``{node_id: selected}`` for the nodes drawn here, which the caller
+    forwards to the client: a node whose inputs are unchanged is answered from
+    ComfyUI's cache and is therefore *not* executed, so its ``ui`` payload - and
+    with it the node preview - would otherwise keep the thumbnails of an earlier
+    draw (change the seed, run, change it back, run: the images stay on the
+    previous seed).  A node that is deferred because one of its inputs is still a
+    link cannot be reported, it announces its own draw when it executes.
     """
     if not isinstance(prompt, dict):
-        return
+        return {}
 
+    updates = {}
     for node_id, node in list(prompt.items()):
         if not isinstance(node, dict) or node.get("class_type") != "AnimaPromptComposer":
             continue
         inputs = node.setdefault("inputs", {})
         if not isinstance(inputs, dict):
             continue
+
+        composer.sanitize_inputs(inputs)
 
         if any(isinstance(inputs.get(name), list) for name in composer.QUEUE_RESOLVE_INPUTS):
             inputs["resolved_prompt"] = ""
@@ -1927,6 +2050,9 @@ def _resolve_anima_prompt_composer_nodes(prompt, extra_pnginfo, composer):
             resolved_prompt,
             selected,
         )
+        updates[node_id] = selected
+
+    return updates
 
 def _install_anima_prompt_composer_queue_resolver():
     if getattr(PromptServer.instance, "_anima_prompt_composer_resolver_installed", False):
@@ -1960,7 +2086,15 @@ def _install_anima_prompt_composer_queue_resolver():
                     json_data.get("client_id"),
                 )
 
-            _resolve_anima_prompt_composer_nodes(prompt, extra_pnginfo, composer)
+            composer_updates = _resolve_anima_prompt_composer_nodes(prompt, extra_pnginfo, composer)
+            if composer_updates:
+                # Keeps the node preview in sync with the run that is about to
+                # happen, including when the node itself is served from the cache.
+                PromptServer.instance.send_sync(
+                    "anima.prompt_composer_selection",
+                    {"nodes": composer_updates},
+                    json_data.get("client_id"),
+                )
         except Exception as e:
             print(f"[Anima Tools] Failed to resolve random prompt metadata before queue: {e}")
         return json_data

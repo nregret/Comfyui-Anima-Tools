@@ -203,6 +203,8 @@ LoRA loading and downloading require `.safetensors` files within directories reg
 > 新增参数一律追加在 `resolved_prompt` 之后，因此旧工作流的 `widgets_values` 位置保持不变，升级后行为与升级前一致。
 >
 > 这些新增输入同时是**可选输入**（`optional`）而非必填：ComfyUI 校验时会对 `INPUT_TYPES` 中缺失的 `required` 输入报 `required_input_missing`，Python 参数默认值无法绕过该校验，所以若放在 `required`，3.2.9 保存的 API 工作流会直接校验失败。放在 `optional` 后，缺失时由节点签名在运行时补默认值，旧 API 工作流照常可用。
+>
+> 与 3.2.9 之前保存的工作流互通时另有一个坑：前端把「没有值的 widget」序列化成 `null`，而 `widgets_values` 是按位置恢复的 —— 旧工作流数组更短，新追加的 widget 就会拿到 `null`，`character_seed: null` 会让 ComfyUI 在节点运行前就拒绝整个队列（`Failed to convert an input value to a INT value: character_seed, None`）。本版本已在两处兜底：前端加载节点时把 `null` 还原成默认值并在下次保存时写回，服务端排队钩子也会在 ComfyUI 校验前修好这类值，因此打开旧工作流**不需要手动补值**。
 
 ### 5. 🧩 Anima Multi LoRA Loader (多 LoRA 加载器)
 *   `model`: ComfyUI 标准模型输入。

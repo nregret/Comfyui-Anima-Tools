@@ -45,6 +45,19 @@ ADDED_INPUTS = (
 
 WIDGET_ORDER = LEGACY_INPUTS + ADDED_INPUTS
 
+# `widgets_values` as the frontend writes it.  The frontend adds its own
+# `control_after_generate` combo (the fixed / increment / decrement / randomize
+# selector) right after the widget named `seed`, and serializes it in the
+# workflow even though it is not sent to the prompt - a saved workflow reads
+# ``[..., 150, "fixed", 1, false, "<prompt>", null]``.  Every widget below `seed`
+# is therefore shifted by one position.
+SERIALIZED_WIDGET_ORDER = (
+    *LEGACY_INPUTS[:7],
+    "control_after_generate",
+    *LEGACY_INPUTS[7:],
+    *ADDED_INPUTS,
+)
+
 
 def load_prompt_composer_class():
     nodes_path = REPO_ROOT / "nodes.py"
@@ -136,10 +149,15 @@ class AnimaPromptComposerApiCompatTests(unittest.TestCase):
         combined = tuple(self.input_types["required"]) + tuple(self.input_types["optional"])
         self.assertEqual(combined, WIDGET_ORDER)
 
+    def test_serialized_widget_order_accounts_for_the_frontend_seed_control(self):
+        """`_workflow_widget_index` indexes the frontend's `widgets_values`."""
         composer = self.composer_class()
-        for index, name in enumerate(WIDGET_ORDER):
+        for index, name in enumerate(SERIALIZED_WIDGET_ORDER):
             self.assertEqual(composer._workflow_widget_index(name), index, name)
         self.assertEqual(composer._workflow_widget_index("not_a_widget"), -1)
+        # Regression: 9 is the `preview_collapsed` slot, so a drawn prompt used to
+        # be written into it (visible in a shipped workflow).
+        self.assertEqual(composer._workflow_widget_index("resolved_prompt"), 10)
 
     def test_legacy_api_payload_has_no_missing_required_input(self):
         self.assertEqual(missing_input_errors(self.input_types, self.legacy_payload()), [])
