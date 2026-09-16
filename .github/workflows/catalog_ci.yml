@@ -1,0 +1,27 @@
+name: Catalog CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Check catalog bundle
+        run: python tools/build_catalog_bundle.py --check
+      - name: Run Python tests
+        run: python -m unittest discover -s tests -p "test_*.py"
+      - name: Run JavaScript tests
+        run: |
+          node tests/anima_selector_ui.test.mjs
+          node tests/anima_lora_node_widgets.test.mjs
