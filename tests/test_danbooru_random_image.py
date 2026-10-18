@@ -1050,6 +1050,52 @@ class DanbooruNamespaceTests(unittest.TestCase):
 
         self.assertEqual(groups["general"], "1girl")
 
+    def test_a_wildcard_block_tag_drops_every_tag_containing_it(self):
+        groups = self.ns["format_tag_groups"](
+            sample_post(tag_string_general="1girl bar_censor censored nude"),
+            block_tags="*censor*",
+        )
+
+        self.assertEqual(groups["general"], "1girl, nude")
+
+    def test_a_wildcard_block_tag_can_anchor_at_the_start_or_the_end(self):
+        groups = self.ns["format_tag_groups"](
+            sample_post(tag_string_general="1girl hair_ornament long_hair"),
+            block_tags="hair*,*hair",
+        )
+
+        self.assertEqual(groups["general"], "1girl")
+
+    def test_a_question_mark_wildcard_matches_exactly_one_character(self):
+        groups = self.ns["format_tag_groups"](
+            sample_post(tag_string_general="1girl 2girls"), block_tags="2girl?"
+        )
+
+        self.assertEqual(groups["general"], "1girl")
+
+    def test_a_block_tag_without_wildcards_still_matches_the_whole_tag_only(self):
+        groups = self.ns["format_tag_groups"](
+            sample_post(tag_string_general="smile smiley smirk"), block_tags="smile"
+        )
+
+        self.assertEqual(groups["general"], "smiley, smirk")
+
+    def test_wildcard_block_tags_are_separated_by_commas(self):
+        groups = self.ns["format_tag_groups"](
+            sample_post(tag_string_general="1girl bar_censor smile nude"),
+            block_tags="*censor*, smile",
+        )
+
+        self.assertEqual(groups["general"], "1girl, nude")
+
+    def test_a_wildcard_does_not_turn_off_the_default_blocklist(self):
+        groups = self.ns["format_tag_groups"](
+            sample_post(tag_string_general="1girl artist_name censored"),
+            block_tags="*censor*",
+        )
+
+        self.assertEqual(groups["general"], "1girl")
+
     def test_the_cache_file_name_keeps_the_requested_size(self):
         paths = {
             size: self.ns["cache_file_path"]("/cache", sample_post(), size)

@@ -61,6 +61,7 @@ outside world (``http_get``, ``load_image_tensor``) is replaceable in tests.
 from __future__ import annotations
 
 import base64
+import fnmatch
 import hashlib
 import http.client
 import io
@@ -255,6 +256,32 @@ def normalize_block_tags(value):
     return [tag for tag in (normalize_post_tag(part) for part in split_block_parts(value)) if tag]
 
 
+def compile_blocklist(value, include_defaults=True):
+    """Turn the blocklist text into a predicate for prompt-form tags.
+
+    An entry is still one tag, but ``*`` (any run of characters, empty included)
+    and ``?`` (exactly one character) work as wildcards, so ``*censor*`` drops
+    ``bar censor`` and ``censored`` in one rule.  Entries without a wildcard keep
+    the old meaning - the whole tag, not a substring - so ``smile`` never eats
+    ``smiley``.
+    """
+
+    exact = set()
+    wildcards = []
+    for entry in normalize_block_tags(value):
+        if "*" in entry or "?" in entry:
+            wildcards.append(re.compile(fnmatch.translate(entry)))
+        else:
+            exact.add(entry)
+    if include_defaults:
+        exact.update(normalize_post_tag(tag) for tag in DEFAULT_BLOCKED_TAGS)
+
+    def is_blocked(tag):
+        return tag in exact or any(pattern.match(tag) for pattern in wildcards)
+
+    return is_blocked
+
+
 def split_block_parts(value):
     """Blocklist entries split on commas, semicolons and newlines - spaces stay."""
 
@@ -298,11 +325,7 @@ def format_tag_groups(
 
     post = post if isinstance(post, dict) else {}
     wanted = set(tag_types or ())
-    blocked = set()
-    if use_default_blocklist:
-        blocked.update(normalize_post_tag(tag) for tag in DEFAULT_BLOCKED_TAGS)
-    for tag in normalize_block_tags(block_tags):
-        blocked.add(tag)
+    is_blocked = compile_blocklist(block_tags, include_defaults=use_default_blocklist)
 
     groups = {}
     for group in TAG_GROUPS:
@@ -310,7 +333,7 @@ def format_tag_groups(
         if group in wanted:
             for token in split_post_tags(post.get("tag_string_%s" % group)):
                 tag = normalize_post_tag(token)
-                if not tag or tag in blocked or tag in tags:
+                if not tag or tag in tags or is_blocked(tag):
                     continue
                 tags.append(tag)
             if group == "artist" and artist_prefix:
