@@ -1,7 +1,4 @@
-import { app } from "../../scripts/app.js";
 import { t } from "./i18n.js";
-import { openGallerySelector } from "./anima_gallery_selector.js";
-import { addSelectorActionRow, installSelectorExecutionSync, isAnimaPromptPlusNode } from "./anima_selector_random.js";
 import { formatCount, normalizePromptToken, splitPromptTokens } from "./anima_selector_ui.js";
 import "./character_data.js";
 
@@ -34,37 +31,15 @@ async function ensureCharacterOfficialData() {
     return characterOfficialDataPromise;
 }
 
-app.registerExtension({
-    name: "AnimaCharacterTagSelector.extension",
-
-    async beforeRegisterNodeDef(nodeType, nodeData) {
-        if (nodeData.name === "AnimaCharacterTagSelector" || nodeData.name === "AnimaCharacterTagSelectorPlus" || isAnimaPromptPlusNode(nodeData.name)) {
-            installSelectorExecutionSync(nodeType);
-            const origOnCreated = nodeType.prototype.onNodeCreated;
-            nodeType.prototype.onNodeCreated = function () {
-                origOnCreated?.apply(this, arguments);
-
-                const characterTagsWidget = this.widgets.find(w => w.name === "character_tags");
-                if (!characterTagsWidget) return;
-
-                addSelectorActionRow(this, {
-                    section: "character",
-                    label: t("Open Character Selector"),
-                    accent: "#db2777",
-                    accentText: "#f472b6",
-                    onOpen: async () => {
-                        if (!window.characterData) {
-                            alert(t("Anima character database is loading, please wait a few seconds..."));
-                            return;
-                        }
-                        ensureCharacterOfficialData();
-                        await openCharacterSelector(this, characterTagsWidget);
-                    },
-                });
-            };
-        }
-    }
-});
+export const characterSelector = {
+    kind: "character",
+    label: "Characters",
+    icon: "user",
+    widgetName: "character_tags",
+    loading: "Anima character database is loading, please wait a few seconds...",
+    ready: () => Boolean(window.characterData),
+    createConfig: characterSelectorConfig,
+};
 
 function pushUniquePromptTokens(target, seen, value) {
     splitPromptTokens(value).forEach(token => {
@@ -212,8 +187,9 @@ function loadSavedFilters() {
 
 const byPosts = (a, b) => (Number(b.post_count) || 0) - (Number(a.post_count) || 0);
 
-async function openCharacterSelector(node, widget) {
-    const data = window.characterData || [];
+function characterSelectorConfig() {
+    ensureCharacterOfficialData();
+    const data = window.characterData;
     const attemptedOfficial = new Set();
     const hairCounts = countBy(data, "hair");
     const eyeCounts = countBy(data, "eye");
@@ -266,12 +242,7 @@ async function openCharacterSelector(node, widget) {
     const optionLabel = (id, value) => filterDefs.find(def => def.id === id).options.find(entry => entry.value === value)?.label || value;
     const isPending = item => getExplicitCharacterTags(item).length === 0 && !attemptedOfficial.has(getCharacterCacheKey(item));
 
-    await openGallerySelector({
-        kind: "character",
-        title: t("Anima Character Tag Selector"),
-        icon: "user",
-        node,
-        widget,
+    return {
         data,
         pageSize: 60,
         cardAspect: "3 / 4",
@@ -375,5 +346,5 @@ async function openCharacterSelector(node, widget) {
             items.forEach(item => getCharacterPromptParts(item, mode === "tags").forEach(tag => pushUniquePromptTokens(parts, seen, tag)));
             return parts.length ? `${parts.join(", ")}, ` : "";
         },
-    });
+    };
 }

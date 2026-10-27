@@ -1,7 +1,8 @@
 /**
  * Shared popup shell for the Anima tag selectors (artist, character, clothing,
  * background, pose). Selector adapters provide data, filters, card metadata and
- * prompt output; this module owns layout, selection, favorites and paging.
+ * prompt output; this module owns layout, selection, favorites, paging and the
+ * selector tabs of one prompt node.
  */
 import { t } from "./i18n.js";
 import { markImageLoaded, isImageLoaded } from "./anima_image_utils.js";
@@ -19,6 +20,7 @@ import {
 } from "./anima_selector_ui.js";
 
 const DEFAULT_GROUP = "default";
+const ACTIVE_SELECTOR_STORAGE_KEY = "anima-prompt-selector-active";
 const TABS = [
     { id: "all", icon: "grid", label: "All" },
     { id: "favorites", icon: "star", label: "Favorites" },
@@ -149,17 +151,39 @@ function initialOf(text) {
     return (clean[0] || "?").toUpperCase();
 }
 
-export async function openGallerySelector(config) {
-    closeActiveSelector?.();
+/**
+ * Opens the popup for a prompt node with one tab per selector. Selections are kept
+ * while switching tabs, and applying writes every selector whose selection changed
+ * to its own widget.
+ */
+export function openPromptSelector(node, title, selectors) {
+    const saved = localStorage.getItem(ACTIVE_SELECTOR_STORAGE_KEY);
+    const selector = selectors.find(entry => entry.kind === saved && entry.ready()) || selectors.find(entry => entry.ready());
+    if (!selector) {
+        alert(t(selectors[0].loading));
+        return;
+    }
+    openSelector(selector, { node, title, selectors, pending: new Map(), returnFocus: document.activeElement });
+}
+
+async function openSelector(selector, session) {
     injectSelectorStyles();
     const token = openToken = {};
-    const { kind, data, labels, storage, pageSize } = config;
-    const section = await fetchFavoriteSection(kind);
+    const { kind } = selector;
+    const widget = session.node.widgets.find(entry => entry.name === selector.widgetName);
+    const config = selector.createConfig(widget);
+    const { data, labels, storage, pageSize } = config;
+    const favorites = await fetchFavoriteSection(kind);
     if (token !== openToken) return;
+    localStorage.setItem(ACTIVE_SELECTOR_STORAGE_KEY, kind);
     const applyActions = config.applyActions || [{ label: t("Confirm & Apply"), primary: true }];
-    const store = createFavoriteStore(kind, section, config.favoriteKey);
+    const defaultMode = applyActions.find(action => action.primary)?.mode;
+    const store = createFavoriteStore(kind, favorites, config.favoriteKey);
     const selection = new Map();
-    config.initialSelection(store.customs()).forEach(item => selection.set(config.selectionKey(item), item));
+    const pending = session.pending.get(kind);
+    (pending ? pending.items : config.initialSelection(store.customs())).forEach(item => selection.set(config.selectionKey(item), item));
+    const selectionKeys = () => [...selection.keys()].join("\n");
+    const initialKeys = pending ? pending.initialKeys : selectionKeys();
 
     const saved = config.loadState();
     const state = {
@@ -196,14 +220,13 @@ export async function openGallerySelector(config) {
             : (valid.has(value) ? value : null);
     });
 
-    const returnFocus = document.activeElement;
     const overlay = document.createElement("div");
     overlay.className = "anima-sel-overlay";
     overlay.dataset.kind = kind;
     overlay.innerHTML = `
-        <div class="anima-sel-shell" role="dialog" aria-modal="true" aria-label="${escapeHtml(config.title)}" style="--anima-card-aspect: ${config.cardAspect}">
+        <div class="anima-sel-shell" role="dialog" aria-modal="true" aria-label="${escapeHtml(session.title)}" style="--anima-card-aspect: ${config.cardAspect}">
             <header class="anima-sel-topbar">
-                <div class="anima-sel-heading">${selectorIcon(config.icon)}<div class="anima-sel-title">${escapeHtml(config.title)}</div></div>
+                <nav class="anima-sel-kinds" aria-label="${escapeHtml(session.title)}"></nav>
                 <div class="anima-sel-topbar-actions">
                     <button class="anima-sel-filter-toggle" type="button" data-action="toggle-filters" aria-label="${escapeHtml(t("Adjust Filters"))}">${selectorIcon("panel")}<span>${escapeHtml(t("Adjust Filters"))}</span></button>
                     <button class="anima-sel-close" type="button" data-action="close" aria-label="${escapeHtml(t("Close"))}" title="${escapeHtml(t("Close"))} (Esc)">${selectorIcon("close")}</button>
@@ -254,6 +277,7 @@ export async function openGallerySelector(config) {
     `;
 
     const shell = overlay.querySelector(".anima-sel-shell");
+    const kindsEl = overlay.querySelector(".anima-sel-kinds");
     const tabsEl = overlay.querySelector(".anima-sel-tabs");
     const layoutEl = overlay.querySelector(".anima-sel-layout");
     const navEl = overlay.querySelector(".anima-sel-nav");
@@ -342,6 +366,11 @@ export async function openGallerySelector(config) {
 
     function renderTabs() {
         const counts = { favorites: store.total(), selected: selection.size };
+        kindsEl.innerHTML = session.selectors.map(entry => {
+            const active = entry.kind === kind;
+            const count = active ? selection.size : session.pending.get(entry.kind)?.items.length;
+            return `<button class="anima-sel-kind ${active ? "active" : ""}" type="button" data-action="kind" data-kind="${entry.kind}" aria-current="${active}">${selectorIcon(entry.icon)}<span>${escapeHtml(t(entry.label))}</span>${count ? `<b>${formatCount(count)}</b>` : ""}</button>`;
+        }).join("");
         tabsEl.innerHTML = TABS.map(tab => {
             const active = currentTab() === tab.id;
             return `<button class="anima-sel-tab ${active ? "active" : ""}" type="button" role="tab" aria-selected="${active}" data-action="tab" data-tab="${tab.id}">${selectorIcon(tab.icon)}<span>${escapeHtml(t(tab.label))}</span><b>${counts[tab.id] ? formatCount(counts[tab.id]) : ""}</b></button>`;
@@ -801,15 +830,22 @@ export async function openGallerySelector(config) {
         return tokens.length ? `${tokens.join(", ")}, ` : "";
     }
 
+    // Tabs that were not active on apply use their primary apply mode.
+    function stash(mode = defaultMode) {
+        session.pending.set(kind, { config, widget, items: [...selection.values()], keys: selectionKeys(), initialKeys, mode });
+    }
+
     async function apply(action, button) {
-        const items = [...selection.values()];
-        if (config.prepareApply) {
+        stash(action.mode);
+        const changed = [...session.pending.values()].filter(entry => entry.keys !== entry.initialKeys);
+        const loading = changed.filter(entry => entry.config.prepareApply);
+        if (loading.length) {
             overlay.querySelectorAll('[data-action="apply"]').forEach(entry => entry.disabled = true);
             button.textContent = t("Loading official tags...");
-            await config.prepareApply(items);
+            await Promise.all(loading.map(entry => entry.config.prepareApply(entry.items)));
         }
-        writeWidget(config.widget, config.buildOutput(items, action.mode));
-        config.node.triggerSlot?.(0);
+        changed.forEach(entry => writeWidget(entry.widget, entry.config.buildOutput(entry.items, entry.mode)));
+        session.node.triggerSlot?.(0);
         close();
     }
 
@@ -818,7 +854,7 @@ export async function openGallerySelector(config) {
         observer.disconnect();
         overlay.remove();
         closeActiveSelector = null;
-        if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+        if (session.returnFocus?.isConnected) session.returnFocus.focus({ preventScroll: true });
     }
 
     function closeFavoritePopover(controls, restoreFocus = false) {
@@ -856,6 +892,16 @@ export async function openGallerySelector(config) {
 
     const actions = {
         "close": close,
+        "kind": target => {
+            const next = session.selectors.find(entry => entry.kind === target.dataset.kind);
+            if (next.kind === kind) return;
+            if (!next.ready()) {
+                toast(t(next.loading));
+                return;
+            }
+            stash();
+            openSelector(next, session);
+        },
         "toggle-filters": () => setFiltersOpen(!state.filtersOpen),
         "close-filters": () => setFiltersOpen(false),
         "tab": target => switchTab(target.dataset.tab),
@@ -1162,6 +1208,9 @@ export async function openGallerySelector(config) {
         }
     });
 
+    // A tab switch replaces the open popup only once the next one is ready, without replaying the entrance animation.
+    overlay.classList.toggle("is-switching", Boolean(closeActiveSelector));
+    closeActiveSelector?.();
     document.body.appendChild(overlay);
     closeActiveSelector = close;
 

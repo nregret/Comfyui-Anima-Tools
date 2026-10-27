@@ -250,10 +250,15 @@ const SELECTOR_CSS = String.raw`
     box-shadow: 0 24px 80px rgba(0, 0, 0, .4);
     animation: animaSelIn .2s cubic-bezier(.2,.7,.2,1);
 }
+.anima-sel-overlay.is-switching .anima-sel-shell { animation: none; }
 .anima-sel-topbar { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 20px; min-height: 58px; padding: 12px 20px; border-bottom: 1px solid var(--sel-line); background: var(--sel-surface); }
-.anima-sel-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.anima-sel-heading > svg { width: 22px; height: 22px; color: var(--sel-accent); }
-.anima-sel-title { overflow: hidden; color: var(--sel-text); font-size: 15px; font-weight: 600; line-height: 22px; text-overflow: ellipsis; white-space: nowrap; }
+.anima-sel-kinds { display: flex; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.anima-sel-kind { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 7px; height: 34px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--sel-muted); font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: background-color .16s ease, color .16s ease; }
+.anima-sel-kind > svg { width: 18px; height: 18px; }
+.anima-sel-kind:hover { background: var(--sel-hover); color: var(--sel-text); }
+.anima-sel-kind.active { background: var(--sel-selected); color: var(--sel-accent); }
+.anima-sel-kind b { min-width: 18px; padding: 0 5px; border-radius: 4px; background: var(--sel-rail); color: var(--sel-muted); font-size: 10px; font-weight: 500; line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; }
+.anima-sel-kind.active b { background: var(--sel-accent); color: var(--anima-panel); }
 .anima-sel-topbar-actions { display: flex; align-items: center; gap: 12px; }
 .anima-sel-close, .anima-sel-filter-toggle, .anima-sel-reset, .anima-sel-tab, .anima-sel-status { display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--sel-muted); cursor: pointer; }
 .anima-sel-close { width: 32px; height: 32px; padding: 0; border-radius: 6px; }
@@ -531,6 +536,7 @@ const SELECTOR_CSS = String.raw`
 @media (max-width: 720px) {
     .anima-sel-shell { width: 100vw; height: 100dvh; border-radius: 0; }
     .anima-sel-topbar { min-height: 54px; padding: 10px 14px; }
+    .anima-sel-kind { padding: 0 9px; }
     .anima-sel-filter-toggle { width: 32px; padding: 0; }
     .anima-sel-filter-toggle > span, .anima-sel-escape, .anima-sel-links { display: none; }
     .anima-sel-workspace { grid-template-columns: 60px minmax(0, 1fr); }

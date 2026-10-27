@@ -1,41 +1,17 @@
-import { app } from "../../scripts/app.js";
 import { t } from "./i18n.js";
-import { openGallerySelector } from "./anima_gallery_selector.js";
-import { addSelectorActionRow, installSelectorExecutionSync, isAnimaPromptPlusNode } from "./anima_selector_random.js";
 import { formatCount, shuffleInPlace } from "./anima_selector_ui.js";
 
 const SIDEBAR_STORAGE_KEY = "anima-artist-active-sidebar-category";
 
-app.registerExtension({
-    name: "AnimaArtistTagSelector.extension",
-
-    async beforeRegisterNodeDef(nodeType, nodeData) {
-        if (nodeData.name === "AnimaArtistTagSelector" || nodeData.name === "AnimaArtistTagSelectorPlus" || isAnimaPromptPlusNode(nodeData.name)) {
-            installSelectorExecutionSync(nodeType);
-            const origOnCreated = nodeType.prototype.onNodeCreated;
-            nodeType.prototype.onNodeCreated = function () {
-                origOnCreated?.apply(this, arguments);
-
-                const artistTagsWidget = this.widgets.find(w => w.name === "artist_tags");
-                if (!artistTagsWidget) return;
-
-                addSelectorActionRow(this, {
-                    section: "artist",
-                    label: t("Open Artist Selector"),
-                    accent: "#0b8ce9",
-                    accentText: "#7dd3fc",
-                    onOpen: async () => {
-                        if (!window.galleryData) {
-                            alert(t("Anima artist database is loading, please wait a few seconds..."));
-                            return;
-                        }
-                        await openArtistSelector(this, artistTagsWidget);
-                    },
-                });
-            };
-        }
-    }
-});
+export const artistSelector = {
+    kind: "artist",
+    label: "Artists",
+    icon: "palette",
+    widgetName: "artist_tags",
+    loading: "Anima artist database is loading, please wait a few seconds...",
+    ready: () => Boolean(window.galleryData),
+    createConfig: artistSelectorConfig,
+};
 
 function cleanArtistToken(value) {
     const text = String(value || "").trim();
@@ -101,14 +77,9 @@ export function parseInitialSelection(text, data, customs) {
     return items;
 }
 
-async function openArtistSelector(node, widget) {
-    const data = window.galleryData || [];
-    await openGallerySelector({
-        kind: "artist",
-        title: t("Anima Artist Style Selector"),
-        icon: "palette",
-        node,
-        widget,
+function artistSelectorConfig(widget) {
+    const data = window.galleryData;
+    return {
         data,
         pageSize: 60,
         cardAspect: "3 / 4",
@@ -180,5 +151,5 @@ async function openArtistSelector(node, widget) {
             });
             return tokens.length ? `${tokens.join(", ")}, ` : "";
         },
-    });
+    };
 }

@@ -1,27 +1,21 @@
-import { app } from "../../scripts/app.js";
 import { t } from "./i18n.js";
-import { openGallerySelector } from "./anima_gallery_selector.js";
-import { addSelectorActionRow, installSelectorExecutionSync, isAnimaPromptPlusNode } from "./anima_selector_random.js";
 import { normalizePromptToken, shuffleInPlace, splitPromptTokens } from "./anima_selector_ui.js";
 import "./background_data.js";
 import "./clothing_data.js";
 import "./pose_data.js";
 
 // Clothing, background and pose share one data shape: id, name, name_zh, tags, tags_zh, categories, traits, preview.
-const TAG_SELECTORS = [
+const TAG_SELECTOR_DEFS = [
     {
         kind: "clothing",
-        extension: "AnimaClothingTagSelector.extension",
-        nodeNames: ["AnimaClothingTagSelector", "AnimaClothingTagSelectorPlus"],
+        label: "Clothing",
         widgetName: "clothing_tags",
         dataKey: "clothingData",
         icon: "shirt",
         restoreSelection: true,
         categories: ["Dress & Gown", "Casual & Daily", "Uniform & Suit", "Swimsuit & Lingerie", "Fantasy & Cosplay", "Revealing"],
+        loading: "Anima clothing database is loading, please wait a few seconds...",
         text: {
-            open: "Open Clothing Selector",
-            loading: "Anima clothing database is loading, please wait a few seconds...",
-            title: "Anima Clothing Tag Selector",
             all: "All Clothing",
             search: "Search clothing or tags...",
             empty: "No matching clothing items found",
@@ -32,17 +26,14 @@ const TAG_SELECTORS = [
     },
     {
         kind: "background",
-        extension: "AnimaBackgroundTagSelector.extension",
-        nodeNames: ["AnimaBackgroundTagSelector", "AnimaBackgroundTagSelectorPlus"],
+        label: "Background",
         widgetName: "background_tags",
         dataKey: "backgroundData",
         icon: "image",
         restoreSelection: false,
         categories: ["Nature & Outdoors", "Urban & Daily", "Fantasy & Sci-Fi", "Minimalist & Abstract"],
+        loading: "Anima background database is loading, please wait a few seconds...",
         text: {
-            open: "Open Background Selector",
-            loading: "Anima background database is loading, please wait a few seconds...",
-            title: "Anima Background Tag Selector",
             all: "All Backgrounds",
             search: "Search background or tags...",
             empty: "No matching background scenes found",
@@ -53,17 +44,14 @@ const TAG_SELECTORS = [
     },
     {
         kind: "pose",
-        extension: "AnimaPoseTagSelector.extension",
-        nodeNames: ["AnimaPoseTagSelector", "AnimaPoseTagSelectorPlus"],
+        label: "Pose",
         widgetName: "pose_tags",
         dataKey: "poseData",
         icon: "pose",
         restoreSelection: false,
         categories: ["Gestures & Arms", "Standing & Dynamic", "Sitting Poses", "Lying & Prone", "Adjusting & Dressing", "Props & Holding", "Duo & Interaction", "Daily & Miscellaneous"],
+        loading: "Anima pose database is loading, please wait a few seconds...",
         text: {
-            open: "Open Pose Selector",
-            loading: "Anima pose database is loading, please wait a few seconds...",
-            title: "Anima Pose Tag Selector",
             all: "All Poses",
             search: "Search pose or tags...",
             empty: "No matching poses found",
@@ -74,36 +62,11 @@ const TAG_SELECTORS = [
     },
 ];
 
-TAG_SELECTORS.forEach(selector => {
-    app.registerExtension({
-        name: selector.extension,
-
-        async beforeRegisterNodeDef(nodeType, nodeData) {
-            if (!selector.nodeNames.includes(nodeData.name) && !isAnimaPromptPlusNode(nodeData.name)) return;
-            installSelectorExecutionSync(nodeType);
-            const origOnCreated = nodeType.prototype.onNodeCreated;
-            nodeType.prototype.onNodeCreated = function () {
-                origOnCreated?.apply(this, arguments);
-
-                const tagsWidget = this.widgets.find(w => w.name === selector.widgetName);
-                if (!tagsWidget) return;
-                addSelectorActionRow(this, {
-                    section: selector.kind,
-                    label: t(selector.text.open),
-                    accent: "#db2777",
-                    accentText: "#f472b6",
-                    onOpen: async () => {
-                        if (!window[selector.dataKey]) {
-                            alert(t(selector.text.loading));
-                            return;
-                        }
-                        await openTagSelector(selector, this, tagsWidget);
-                    },
-                });
-            };
-        }
-    });
-});
+export const TAG_SELECTORS = TAG_SELECTOR_DEFS.map(selector => ({
+    ...selector,
+    ready: () => Boolean(window[selector.dataKey]),
+    createConfig: widget => tagSelectorConfig(selector, widget),
+}));
 
 function englishCategory(category) {
     const text = String(category || "").trim();
@@ -150,9 +113,9 @@ const SORTERS = {
     "name-desc": (a, b) => String(b.name || "").localeCompare(String(a.name || "")),
 };
 
-async function openTagSelector(selector, node, widget) {
+function tagSelectorConfig(selector, widget) {
     const { kind, text } = selector;
-    const data = Array.isArray(window[selector.dataKey]) ? window[selector.dataKey] : [];
+    const data = window[selector.dataKey];
     const filterStorageKey = `anima-${kind}-selector-filters`;
     const translations = buildTagTranslations(data);
     const categoryNames = new Map();
@@ -165,12 +128,7 @@ async function openTagSelector(selector, node, widget) {
     const categoryLabel = (category, bilingual) => bilingual ? categoryNames.get(category) || category : category;
     const tagHint = (tag, bilingual) => bilingual ? translations.get(normalizePromptToken(tag)) || "" : "";
 
-    await openGallerySelector({
-        kind,
-        title: t(text.title),
-        icon: selector.icon,
-        node,
-        widget,
+    return {
         data,
         pageSize: 48,
         cardAspect: "2 / 3",
@@ -301,5 +259,5 @@ async function openTagSelector(selector, node, widget) {
             const tags = items.flatMap(item => splitPromptTokens(item.isCustom ? item.customContent : item.tags));
             return tags.length ? `${tags.join(", ")}, ` : "";
         },
-    });
+    };
 }

@@ -5,6 +5,7 @@ export const ANIMA_PROMPT_PLUS_NODE_NAMES = new Set([
     "AnimaPromptPlus",
     "AnimaPromptPlusClipEncode",
 ]);
+const PROMPT_SELECTOR_WIDGET = "anima_prompt_selector";
 
 export function isAnimaPromptPlusNode(nodeName) {
     return ANIMA_PROMPT_PLUS_NODE_NAMES.has(nodeName);
@@ -43,10 +44,8 @@ function refreshNode(node) {
     window?.app?.graph?.setDirtyCanvas?.(true, true);
 }
 
-function refreshSelectorActionRows(node) {
-    const rows = node?._animaSelectorActionRows;
-    if (!rows || typeof rows !== "object") return;
-    Object.values(rows).forEach(row => row?.__animaSelectorRefresh?.());
+function refreshPromptSelectorWidget(node) {
+    getWidget(node, PROMPT_SELECTOR_WIDGET)?.__animaSelectorRefresh?.();
 }
 
 function getWidget(node, name) {
@@ -97,14 +96,11 @@ function syncSelectorTagsFromExecution(node, message) {
 }
 
 export function installSelectorExecutionSync(nodeType) {
-    if (!nodeType?.prototype || nodeType.prototype.__animaSelectorExecutionSyncInstalled) return;
-    nodeType.prototype.__animaSelectorExecutionSyncInstalled = true;
-
     const origOnConfigure = nodeType.prototype.onConfigure;
     nodeType.prototype.onConfigure = function () {
         const result = origOnConfigure?.apply(this, arguments);
         setTimeout(() => {
-            refreshSelectorActionRows(this);
+            refreshPromptSelectorWidget(this);
             refreshNode(this);
         }, 0);
         return result;
@@ -114,7 +110,6 @@ export function installSelectorExecutionSync(nodeType) {
     nodeType.prototype.onExecuted = function (message) {
         const result = origOnExecuted?.apply(this, arguments);
         syncSelectorTagsFromExecution(this, message);
-        refreshSelectorActionRows(this);
         return result;
     };
 }
@@ -139,60 +134,32 @@ function baseButtonStyle() {
     `;
 }
 
-function styleToggle(button, enabled) {
-    button.textContent = enabled ? t("Random On") : t("Random Off");
-    button.title = t("Auto randomize this selector when the workflow runs.");
+function styleRandomToggle(button, enabled) {
+    button.setAttribute("aria-pressed", String(enabled));
     button.style.cssText = `
         ${baseButtonStyle()}
-        flex: 0 0 92px;
-        background: ${enabled ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.045)"};
-        border-color: ${enabled ? "rgba(255,255,255,0.24)" : "rgba(255,255,255,0.10)"};
-        color: ${enabled ? "#f3f4f6" : "#9ca3af"};
-        box-shadow: none;
+        flex: 1 1 0;
+        min-width: 0;
+        height: 24px;
+        padding: 0 4px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 11px;
+        background: ${enabled ? "rgba(56,178,109,0.22)" : "rgba(255,255,255,0.045)"};
+        border-color: ${enabled ? "rgba(56,178,109,0.55)" : "rgba(255,255,255,0.10)"};
+        color: ${enabled ? "#d1fae5" : "#9ca3af"};
     `;
 }
 
-export function addSelectorActionRow(node, config) {
-    const {
-        section,
-        label,
-        onOpen,
-    } = config || {};
-
-    if (!node || !section || typeof onOpen !== "function") return null;
-    node._animaSelectorActionRows = node._animaSelectorActionRows || {};
-    const existingRow = node._animaSelectorActionRows[section];
-    if (existingRow && node.widgets?.includes(existingRow)) {
-        existingRow.__animaSelectorRefresh?.();
-        return existingRow;
-    }
-    if (existingRow) {
-        delete node._animaSelectorActionRows[section];
-    }
-
-    if (typeof node.addDOMWidget !== "function") {
-        const openWidget = node.addWidget("button", label, null, onOpen);
-        const toggleWidget = node.addWidget("button", isRandomEnabled(node, section) ? t("Random On") : t("Random Off"), null, () => {
-            setRandomEnabled(node, section, !isRandomEnabled(node, section));
-            toggleWidget.__animaSelectorRefresh?.();
-        });
-        toggleWidget.__animaSelectorActionSection = section;
-        toggleWidget.__animaSelectorRefresh = () => {
-            toggleWidget.name = isRandomEnabled(node, section) ? t("Random On") : t("Random Off");
-        };
-        toggleWidget.__animaSelectorRefresh();
-        node._animaSelectorActionRows[section] = toggleWidget;
-        return toggleWidget;
-    }
-
-    const row = document.createElement("div");
-    row.className = "anima-selector-action-row";
-    row.style.cssText = `
+// One button opens the prompt selector; the row below toggles which sections are randomized on run.
+export function addPromptSelectorWidget(node, selectors, onOpen) {
+    const container = document.createElement("div");
+    container.style.cssText = `
         display: flex;
-        align-items: center;
-        gap: 6px;
+        flex-direction: column;
+        gap: 4px;
         width: 100%;
-        height: 30px;
         box-sizing: border-box;
         padding: 1px 0;
         pointer-events: none;
@@ -200,62 +167,62 @@ export function addSelectorActionRow(node, config) {
 
     const openButton = document.createElement("button");
     openButton.type = "button";
-    openButton.textContent = label;
+    openButton.textContent = t("Open Prompt Selector");
     openButton.style.cssText = `
         ${baseButtonStyle()}
-        flex: 1 1 auto;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        width: 100%;
         background: rgba(255,255,255,0.055);
         border-color: rgba(255,255,255,0.12);
-        color: #e5e7eb;
     `;
     openButton.onmouseenter = () => {
-        openButton.style.boxShadow = "none";
         openButton.style.borderColor = "rgba(255,255,255,0.22)";
         openButton.style.background = "rgba(255,255,255,0.09)";
     };
     openButton.onmouseleave = () => {
-        openButton.style.boxShadow = "none";
         openButton.style.borderColor = "rgba(255,255,255,0.12)";
         openButton.style.background = "rgba(255,255,255,0.055)";
     };
     openButton.addEventListener("pointerdown", stopNodeDrag);
     openButton.addEventListener("mousedown", stopNodeDrag);
-    openButton.addEventListener("click", async event => {
+    openButton.addEventListener("click", event => {
         stopNodeDrag(event);
-        await onOpen();
+        onOpen();
     });
 
-    const toggleButton = document.createElement("button");
-    toggleButton.type = "button";
-    const updateToggle = () => styleToggle(toggleButton, isRandomEnabled(node, section));
-    updateToggle();
-    toggleButton.addEventListener("pointerdown", stopNodeDrag);
-    toggleButton.addEventListener("mousedown", stopNodeDrag);
-    toggleButton.addEventListener("click", event => {
-        stopNodeDrag(event);
-        setRandomEnabled(node, section, !isRandomEnabled(node, section));
-        updateToggle();
+    const randomRow = document.createElement("div");
+    randomRow.style.cssText = "display: flex; align-items: center; gap: 4px;";
+    const randomLabel = document.createElement("span");
+    randomLabel.textContent = t("Randomize");
+    randomLabel.style.cssText = "flex: 0 0 auto; padding: 0 2px; color: #9ca3af; font-size: 11px; font-weight: 700;";
+    randomRow.appendChild(randomLabel);
+
+    const toggles = selectors.map(selector => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = t(selector.label);
+        button.title = t("Auto randomize this selector when the workflow runs.");
+        button.addEventListener("pointerdown", stopNodeDrag);
+        button.addEventListener("mousedown", stopNodeDrag);
+        button.addEventListener("click", event => {
+            stopNodeDrag(event);
+            setRandomEnabled(node, selector.kind, !isRandomEnabled(node, selector.kind));
+            styleRandomToggle(button, isRandomEnabled(node, selector.kind));
+        });
+        randomRow.appendChild(button);
+        return { kind: selector.kind, button };
     });
+    const refresh = () => toggles.forEach(({ kind, button }) => styleRandomToggle(button, isRandomEnabled(node, kind)));
+    refresh();
 
-    row.appendChild(openButton);
-    row.appendChild(toggleButton);
-
-    const widget = node.addDOMWidget(`anima_${section}_selector_actions`, "div", row, {
+    container.append(openButton, randomRow);
+    const widget = node.addDOMWidget(PROMPT_SELECTOR_WIDGET, "div", container, {
         serialize: false,
         hideOnZoom: false,
         getValue: () => "",
         setValue: () => {},
     });
-    widget.__animaSelectorActionSection = section;
-    widget.__animaSelectorRefresh = updateToggle;
+    widget.__animaSelectorRefresh = refresh;
     widget.serialize = false;
-    widget.computeSize = (width) => [width, 32];
-    widget.computedHeight = 32;
-
-    node._animaSelectorActionRows[section] = widget;
-    return widget;
+    widget.computeSize = width => [width, 60];
+    widget.computedHeight = 60;
 }

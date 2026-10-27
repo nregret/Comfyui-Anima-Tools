@@ -2,9 +2,9 @@
 
 ## Selector popups
 
-The artist, character, clothing, background, and pose selectors share one popup implemented in `js/anima_gallery_selector.js`. Its layout and interaction model follow the CivitaiManager selector:
+The artist, character, clothing, background, and pose selectors share one popup implemented in `js/anima_gallery_selector.js`. The Anima Prompt nodes open it from a single button; it reopens on the last used selector, keeps selections while switching selectors, and on apply writes every selector whose selection changed to its own tag widget. Its layout and interaction model follow the CivitaiManager selector:
 
-- top bar with title, filter-panel toggle, and close button
+- top bar with selector tabs (with selected counts), filter-panel toggle, and close button
 - left icon rail: All / Favorites / Selected
 - collapsible filter panel: favorite groups (Favorites tab) and attribute filters as searchable combos
 - toolbar with page title, sort and display-language menus, a More menu (copy / clear selected), search, and active-filter chips
@@ -16,7 +16,7 @@ Colors follow the ComfyUI theme (`--comfy-menu-bg`, `--fg-color`, `--primary-bac
 
 ## Selector adapters
 
-Each selector supplies a configuration object to `openGallerySelector`:
+Each adapter exports a selector descriptor (kind, label, icon, tag widget name, data readiness, and `createConfig(widget)`). `js/anima_prompt_plus.js` passes them to `openPromptSelector` in widget order and adds the node widget from `js/anima_selector_random.js`: one button plus a row of per-section random toggles.
 
 | File | Selectors |
 | --- | --- |
@@ -38,7 +38,7 @@ Differences from CivitaiManager: Discover always searches Anima LoRAs (the base 
 
 ## Compatibility contract
 
-- Python node class names, widget names, inputs, outputs, and prompt formatting
+- Python node class names, widget names, inputs, outputs, and prompt formatting (the single-category `Anima*TagSelector` / `Anima*TagSelectorPlus` nodes were removed in favor of Anima Prompt / Anima Prompt Plus)
 - `/anima-tools/*` API paths and payload formats; favorites are saved per section
 - Favorite groups, custom items, notes, and their stored shapes
 - Local storage keys for sort, page, scroll, filters, and display language

@@ -1,12 +1,21 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { t } from "./i18n.js";
+import { openPromptSelector } from "./anima_gallery_selector.js";
+import { artistSelector } from "./anima_artist_selector.js";
+import { characterSelector } from "./anima_character_selector.js";
+import { TAG_SELECTORS } from "./anima_tag_selectors.js";
 import {
+    addPromptSelectorWidget,
     applySelectorWidgetValues,
+    installSelectorExecutionSync,
     isAnimaPromptPlusNode,
 } from "./anima_selector_random.js";
 
 const CLIP_ENCODE_NODE_NAME = "AnimaPromptPlusClipEncode";
+const [clothingSelector, backgroundSelector, poseSelector] = TAG_SELECTORS;
+// Same order as the tag widgets on the node.
+const PROMPT_SELECTORS = [artistSelector, characterSelector, clothingSelector, poseSelector, backgroundSelector];
 
 app.registerExtension({
     name: "AnimaPromptPlus.extension",
@@ -27,23 +36,19 @@ app.registerExtension({
 
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (!isAnimaPromptPlusNode(nodeData.name)) return;
+        installSelectorExecutionSync(nodeType);
 
         const origOnCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
             origOnCreated?.apply(this, arguments);
-            setTimeout(() => {
-                reorderSelectorButtons(this);
-                if (nodeData.name === CLIP_ENCODE_NODE_NAME) removeInternalTextControls(this);
-            }, 0);
+            addPromptSelectorWidget(this, PROMPT_SELECTORS, () => openPromptSelector(this, t("Anima Prompt Selector"), PROMPT_SELECTORS));
+            if (nodeData.name === CLIP_ENCODE_NODE_NAME) setTimeout(() => removeInternalTextControls(this), 0);
         };
 
         const origOnConfigure = nodeType.prototype.onConfigure;
         nodeType.prototype.onConfigure = function () {
             const result = origOnConfigure?.apply(this, arguments);
-            setTimeout(() => {
-                reorderSelectorButtons(this);
-                if (nodeData.name === CLIP_ENCODE_NODE_NAME) removeInternalTextControls(this);
-            }, 0);
+            if (nodeData.name === CLIP_ENCODE_NODE_NAME) setTimeout(() => removeInternalTextControls(this), 0);
             return result;
         };
     }
@@ -70,50 +75,6 @@ function removeInternalTextControls(node) {
     if (Number.isFinite(currentWidth) && Number.isFinite(computedSize?.[1])) {
         node.setSize?.([currentWidth, computedSize[1]]);
     }
-    node.setDirtyCanvas?.(true, true);
-    node.graph?.setDirtyCanvas?.(true, true);
-}
-
-function reorderSelectorButtons(node) {
-    if (!node?.widgets?.length) return;
-
-    const sectionOrder = new Map([
-        ["artist", 0],
-        ["character", 1],
-        ["clothing", 2],
-        ["pose", 3],
-        ["background", 4],
-    ]);
-    const labelOrder = new Map([
-        [t("Open Artist Selector"), 0],
-        [t("Open Character Selector"), 1],
-        [t("Open Clothing Selector"), 2],
-        [t("Open Pose Selector"), 3],
-        [t("Open Background Selector"), 4],
-    ]);
-
-    const indexed = node.widgets
-        .map((widget, index) => ({
-            widget,
-            index,
-            rank: sectionOrder.get(widget?.__animaSelectorActionSection) ?? labelOrder.get(widget?.name),
-        }))
-        .filter(item => item.rank !== undefined);
-
-    if (indexed.length < 2) return;
-
-    const firstIndex = Math.min(...indexed.map(item => item.index));
-    const buttonSet = new Set(indexed.map(item => item.widget));
-    const sortedButtons = indexed
-        .sort((a, b) => a.rank - b.rank)
-        .map(item => item.widget);
-
-    node.widgets = [
-        ...node.widgets.slice(0, firstIndex).filter(widget => !buttonSet.has(widget)),
-        ...sortedButtons,
-        ...node.widgets.slice(firstIndex).filter(widget => !buttonSet.has(widget)),
-    ];
-
     node.setDirtyCanvas?.(true, true);
     node.graph?.setDirtyCanvas?.(true, true);
 }
