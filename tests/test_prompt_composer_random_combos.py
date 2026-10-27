@@ -47,8 +47,6 @@ class AnimaPromptComposerRandomComboTests(unittest.TestCase):
             "enable_background": True,
             "enable_pose": True,
             "artist_count": 1,
-            "preview_collapsed": False,
-            "resolved_prompt": "",
         }
 
     def compose(self, **overrides):

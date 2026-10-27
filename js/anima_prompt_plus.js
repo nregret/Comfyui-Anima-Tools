@@ -10,6 +10,7 @@ import {
     applySelectorWidgetValues,
     installSelectorExecutionSync,
     isAnimaPromptPlusNode,
+    refreshPromptSelectorWidget,
 } from "./anima_selector_random.js";
 
 const CLIP_ENCODE_NODE_NAME = "AnimaPromptPlusClipEncode";
@@ -41,7 +42,12 @@ app.registerExtension({
         const origOnCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
             origOnCreated?.apply(this, arguments);
-            addPromptSelectorWidget(this, PROMPT_SELECTORS, () => openPromptSelector(this, t("Anima Prompt Selector"), PROMPT_SELECTORS));
+            addPromptSelectorWidget(this, PROMPT_SELECTORS, () => openPromptSelector(
+                this,
+                t("Anima Prompt Selector"),
+                PROMPT_SELECTORS,
+                () => refreshPromptSelectorWidget(this),
+            ));
             if (nodeData.name === CLIP_ENCODE_NODE_NAME) setTimeout(() => removeInternalTextControls(this), 0);
         };
 

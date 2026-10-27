@@ -323,6 +323,7 @@ export function injectSelectorStyles() {
         .alm-selector-footer .alm-promo-link { min-height: 26px; height: 26px; padding: 0 4px; border: 0; border-radius: 4px; background: transparent; color: var(--selector-muted); font-size: 10px; box-shadow: none; }
         .alm-selector-footer .alm-promo-link svg { width: 14px; height: 14px; }
         .alm-selector-footer .alm-promo-link:hover { color: var(--selector-text); background: var(--selector-hover); box-shadow: none; transform: none; }
+        .alm-selector-footer .alm-promo-afdian, .alm-selector-footer .alm-promo-afdian:hover { color: color-mix(in srgb, #f7a8c8 88%, var(--selector-text)); }
         .alm-selector-escape { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; }
         .alm-selector-escape kbd { padding: 1px 4px; border: 1px solid var(--selector-line); border-radius: 4px; color: var(--selector-muted); font: inherit; }
         .alm-selector-tab:focus-visible, .alm-selector-close:focus-visible, .alm-selector-filter-toggle:focus-visible,

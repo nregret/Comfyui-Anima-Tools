@@ -153,7 +153,7 @@ The Anima Multi LoRA Loader panel and its LoRA Manager popup are ported from Civ
 本套件共提供 4 个节点，放置于 `AnimaArt` 分类目录下：
 
 ### 1. 🧩 Anima Prompt & Anima Prompt Plus (提示词整合)
-*   `quality_prompt` / `artist_tags` / `character_tags` / `clothing_tags` / `pose_tags` / `background_tags` / `extra_prompt` (String): 各分区提示词，Tag 分区可通过「打开提示词选择器」填入，也可以手动修改。画师会统一整理为 `@画师名` 格式。
+*   `quality_prompt` / `artist_tags` / `character_tags` / `clothing_tags` / `pose_tags` / `background_tags` / `extra_prompt` (String): 各分区提示词。节点默认只显示质量提示词与额外拼接提示词；在「打开提示词选择器」中应用某个分类后，对应的 Tag 输入框才会出现并显示所选内容，可继续手动修改（清空后在下次应用或重新加载时隐藏）。开启随机或接入连线的分类也会显示。画师会统一整理为 `@画师名` 格式。
 *   `separator` (String, 默认 `, `): 各分区之间的分隔符。
 *   **随机开关：** 节点底部「随机」一行可单独开启画师、角色、服装、姿势、背景的运行时随机。
 *   **Anima Prompt** 输出 `STRING`；**Anima Prompt Plus** 额外需要 `clip` 输入，输出 `CONDITIONING` 与拼接后的文本。
@@ -162,28 +162,26 @@ The Anima Multi LoRA Loader panel and its LoRA Manager popup are ported from Civ
 > 旧版的单类选择器节点（Artist / Character / Clothing / Background / Pose Tag Selector 及其 `+` 版本）已移除，旧工作流中的这些节点需替换为 Anima Prompt 或 Anima Prompt Plus。
 
 ### 2. 🎲 Anima Prompt Composer (随机提示词整合器)
-*   `enable_artist` / `enable_character` / `enable_clothing` / `enable_background` / `enable_pose` (Boolean): 控制画师、角色、服装、背景、姿势五个类别是否参与输出。
-*   `character_detail` (Combo: `trigger` / `trigger_tags` / `trigger_random_tags`):
+选项按 **种子 → 画师 → 角色 → 服装 → 背景 → 姿势** 分组排列：
+*   `seed` (Int): `-1` 表示每次运行自动随机；固定数值可获得可复现结果。
+*   `enable_artist` (Boolean) / `artist_count` (Int): 是否输出画师，以及随机画师数量。角色、服装、背景与姿势启用时固定各随机 1 个。
+*   `enable_character` (Boolean) / `character_detail` (Combo: `trigger` / `trigger_tags` / `trigger_random_tags`):
     *   `trigger`: 只输出角色触发词。
     *   `trigger_tags`: 输出触发词加该角色全部特征 Tags。
     *   `trigger_random_tags`: 输出触发词 + 随机抽取的部分特征 Tags，用于大幅扩展可组合数量。
-*   `seed` (Int): `-1` 表示每次运行自动随机；固定数值可获得可复现结果。
-*   `artist_count` (Int): 控制随机画师数量；角色、服装、背景与姿势固定各随机 1 个。
-*   `character_seed` / `clothing_seed` (Int): `-1` 表示跟随主 `seed`，固定数值可单独锁定角色或服装，让另一项继续重抽。
 *   `character_tag_count` (Int): `trigger_random_tags` 模式下随机抽取的特征 Tags 数量。
 *   `character_keep_features` (Boolean): 是否把发色、瞳色等身份特征词固定跟在触发词后面（同属性的冲突颜色只保留一个，性别词始终不带）。
-*   `clothing_source` (Combo: `author` / `danbooru` / `character_tags` / `random`):
-    *   `author`: 使用内置服装图库（默认，保持原有行为）。
+*   `character_seed` / `clothing_seed` (Int): `-1` 表示跟随主 `seed`，固定数值可单独锁定角色或服装，让另一项继续重抽。
+*   `enable_clothing` (Boolean) / `clothing_source` (Combo: `author` / `danbooru` / `character_tags` / `random`):
+    *   `author`: 使用内置服装图库（默认）。
     *   `danbooru`: 从 Danbooru 标签组中随机搭配服装。主服装在 **上装 + 下装 / 制服 / 传统服饰** 中三选一，再叠加装饰、袜子与鞋子。`uniform` / `traditional` 两个主服装池只保留整套服装，`geta`、`tabi`、`hood`、`cape`、`haori` 等单件与配饰已归入对应的鞋袜 / 上衣 / 配饰槽，不会再被当成整套服装而出现「没有主服装」或「两双鞋」的搭配。
     *   `character_tags`: 借用其它角色官方 Tags 中属于服装的词。
     *   `random`: 每次运行在以上三种来源中随机挑一种。
-*   `preview_collapsed` (Boolean): 控制节点上的随机结果预览是否折叠。
-*   输出为单个 `STRING`，顺序固定为 **画师 -> 角色 -> 服装 -> 背景 -> 姿势**。
+*   `enable_background` / `enable_pose` (Boolean): 是否输出背景与姿势。
+*   输出为单个 `STRING`，顺序固定为 **画师 -> 角色 -> 服装 -> 背景 -> 姿势**。节点底部显示本次结果的提示词与预览图（可折叠），并随工作流和图片元数据一起保存。
 
 > [!NOTE]
-> 新增参数一律追加在 `resolved_prompt` 之后，因此旧工作流的 `widgets_values` 位置保持不变，升级后行为与升级前一致。
->
-> 这些新增输入同时是**可选输入**（`optional`）而非必填：ComfyUI 校验时会对 `INPUT_TYPES` 中缺失的 `required` 输入报 `required_input_missing`，Python 参数默认值无法绕过该校验，所以若放在 `required`，3.2.9 保存的 API 工作流会直接校验失败。放在 `optional` 后，缺失时由节点签名在运行时补默认值，旧 API 工作流照常可用。
+> 旧工作流打开时会按名称自动迁移到新的选项顺序；相同种子与选项抽出的提示词与旧版完全一致。旧的 API 工作流（含 `preview_collapsed` / `resolved_prompt` 字段）仍可直接运行，这两个字段会被忽略。
 
 ### 3. 🧩 Anima Multi LoRA Loader (多 LoRA 加载器)
 *   `model`: ComfyUI 标准模型输入。

@@ -44,8 +44,23 @@ function refreshNode(node) {
     window?.app?.graph?.setDirtyCanvas?.(true, true);
 }
 
-function refreshPromptSelectorWidget(node) {
+export function refreshPromptSelectorWidget(node) {
     getWidget(node, PROMPT_SELECTOR_WIDGET)?.__animaSelectorRefresh?.();
+}
+
+// A tag section is shown only while it holds text, is randomized on run, or is driven by a link.
+function updateTagWidgetVisibility(node, selectors) {
+    let changed = false;
+    for (const selector of selectors) {
+        const widget = getWidget(node, selector.widgetName);
+        if (!widget) continue;
+        const linked = node.inputs?.some(input => input.widget?.name === selector.widgetName && input.link != null);
+        const hidden = !String(widget.value ?? "").trim() && !isRandomEnabled(node, selector.kind) && !linked;
+        if (widget.hidden === hidden) continue;
+        widget.hidden = hidden;
+        changed = true;
+    }
+    if (changed) node.setSize([node.size[0], node.computeSize()[1]]);
 }
 
 function getWidget(node, name) {
@@ -69,6 +84,7 @@ export function applySelectorWidgetValues(node, values) {
     for (const [name, value] of Object.entries(values)) {
         setWidgetValue(node, name, value);
     }
+    refreshPromptSelectorWidget(node);
     refreshNode(node);
 }
 
@@ -206,13 +222,15 @@ export function addPromptSelectorWidget(node, selectors, onOpen) {
         button.addEventListener("click", event => {
             stopNodeDrag(event);
             setRandomEnabled(node, selector.kind, !isRandomEnabled(node, selector.kind));
-            styleRandomToggle(button, isRandomEnabled(node, selector.kind));
+            refresh();
         });
         randomRow.appendChild(button);
         return { kind: selector.kind, button };
     });
-    const refresh = () => toggles.forEach(({ kind, button }) => styleRandomToggle(button, isRandomEnabled(node, kind)));
-    refresh();
+    const refresh = () => {
+        toggles.forEach(({ kind, button }) => styleRandomToggle(button, isRandomEnabled(node, kind)));
+        updateTagWidgetVisibility(node, selectors);
+    };
 
     container.append(openButton, randomRow);
     const widget = node.addDOMWidget(PROMPT_SELECTOR_WIDGET, "div", container, {
@@ -225,4 +243,5 @@ export function addPromptSelectorWidget(node, selectors, onOpen) {
     widget.serialize = false;
     widget.computeSize = width => [width, 60];
     widget.computedHeight = 60;
+    refresh();
 }

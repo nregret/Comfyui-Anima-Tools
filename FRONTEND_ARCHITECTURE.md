@@ -16,7 +16,7 @@ Colors follow the ComfyUI theme (`--comfy-menu-bg`, `--fg-color`, `--primary-bac
 
 ## Selector adapters
 
-Each adapter exports a selector descriptor (kind, label, icon, tag widget name, data readiness, and `createConfig(widget)`). `js/anima_prompt_plus.js` passes them to `openPromptSelector` in widget order and adds the node widget from `js/anima_selector_random.js`: one button plus a row of per-section random toggles.
+Each adapter exports a selector descriptor (kind, label, icon, tag widget name, data readiness, and `createConfig(widget)`). `js/anima_prompt_plus.js` passes them to `openPromptSelector` in widget order and adds the node widget from `js/anima_selector_random.js`: one button plus a row of per-section random toggles. Tag widgets are hidden (`widget.hidden`) while empty, unless their section is randomized or linked; visibility is refreshed on apply, execution sync, configure, and toggle changes.
 
 | File | Selectors |
 | --- | --- |

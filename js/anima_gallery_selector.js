@@ -30,14 +30,18 @@ const TABS = [
 let closeActiveSelector = null;
 let openToken = null;
 
-async function fetchFavoriteSection(kind) {
+async function fetchFavorites() {
     try {
         const response = await fetch("/anima-tools/favorites");
-        if (response.ok) return (await response.json())?.[kind] || {};
+        if (response.ok) return (await response.json()) || {};
     } catch (error) {
-        console.error(`[Anima Tools] Failed to load ${kind} favorites`, error);
+        console.error("[Anima Tools] Failed to load favorites", error);
     }
     return {};
+}
+
+function primaryMode(config) {
+    return config.applyActions?.find(action => action.primary)?.mode;
 }
 
 export function createFavoriteStore(kind, section, favoriteKey) {
@@ -154,33 +158,44 @@ function initialOf(text) {
 /**
  * Opens the popup for a prompt node with one tab per selector. Selections are kept
  * while switching tabs, and applying writes every selector whose selection changed
- * to its own widget.
+ * to its own widget, then calls onApply.
  */
-export function openPromptSelector(node, title, selectors) {
+export async function openPromptSelector(node, title, selectors, onApply) {
     const saved = localStorage.getItem(ACTIVE_SELECTOR_STORAGE_KEY);
     const selector = selectors.find(entry => entry.kind === saved && entry.ready()) || selectors.find(entry => entry.ready());
     if (!selector) {
         alert(t(selectors[0].loading));
         return;
     }
-    openSelector(selector, { node, title, selectors, pending: new Map(), returnFocus: document.activeElement });
+    const session = { node, title, selectors, onApply, pending: new Map(), returnFocus: document.activeElement };
+    // Every tab starts from what its widget already holds, so the tab badges count existing selections before a tab is visited.
+    const favorites = await fetchFavorites();
+    selectors.filter(entry => entry.ready()).forEach(entry => {
+        const widget = node.widgets.find(item => item.name === entry.widgetName);
+        const config = entry.createConfig(widget);
+        const customs = createFavoriteStore(entry.kind, favorites[entry.kind] || {}, config.favoriteKey).customs();
+        const selection = new Map(config.initialSelection(customs).map(item => [config.selectionKey(item), item]));
+        const keys = [...selection.keys()].join("\n");
+        session.pending.set(entry.kind, { config, widget, items: [...selection.values()], keys, initialKeys: keys, mode: primaryMode(config) });
+    });
+    openSelector(selector, session);
 }
 
 async function openSelector(selector, session) {
     injectSelectorStyles();
     const token = openToken = {};
     const { kind } = selector;
-    const widget = session.node.widgets.find(entry => entry.name === selector.widgetName);
-    const config = selector.createConfig(widget);
-    const { data, labels, storage, pageSize } = config;
-    const favorites = await fetchFavoriteSection(kind);
+    const favorites = (await fetchFavorites())[kind] || {};
     if (token !== openToken) return;
     localStorage.setItem(ACTIVE_SELECTOR_STORAGE_KEY, kind);
+    const pending = session.pending.get(kind);
+    const widget = session.node.widgets.find(entry => entry.name === selector.widgetName);
+    const config = pending ? pending.config : selector.createConfig(widget);
+    const { data, labels, storage, pageSize } = config;
     const applyActions = config.applyActions || [{ label: t("Confirm & Apply"), primary: true }];
-    const defaultMode = applyActions.find(action => action.primary)?.mode;
+    const defaultMode = primaryMode(config);
     const store = createFavoriteStore(kind, favorites, config.favoriteKey);
     const selection = new Map();
-    const pending = session.pending.get(kind);
     (pending ? pending.items : config.initialSelection(store.customs())).forEach(item => selection.set(config.selectionKey(item), item));
     const selectionKeys = () => [...selection.keys()].join("\n");
     const initialKeys = pending ? pending.initialKeys : selectionKeys();
@@ -263,7 +278,7 @@ async function openSelector(selector, session) {
                     <button class="anima-sel-status" type="button" data-action="tab" data-tab="selected">${selectorIcon("check")}<span></span></button>
                     <div class="anima-sel-links">
                         <a href="${PROMO_LINKS.github}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(t("Open GitHub"))}">${selectorIcon("github")}GitHub</a>
-                        <a href="${PROMO_LINKS.afdian}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(t("Support on Afdian"))}">爱发电</a>
+                        <a href="${PROMO_LINKS.afdian}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(t("Support on Afdian"))}" class="is-afdian">💗 爱发电</a>
                     </div>
                     <span class="anima-sel-escape"><kbd>Esc</kbd> ${escapeHtml(t("Close"))}</span>
                 </div>
@@ -845,6 +860,7 @@ async function openSelector(selector, session) {
             await Promise.all(loading.map(entry => entry.config.prepareApply(entry.items)));
         }
         changed.forEach(entry => writeWidget(entry.widget, entry.config.buildOutput(entry.items, entry.mode)));
+        session.onApply();
         session.node.triggerSlot?.(0);
         close();
     }

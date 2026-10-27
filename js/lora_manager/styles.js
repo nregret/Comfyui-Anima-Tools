@@ -3683,8 +3683,8 @@ export function injectStyles() {
             outline: none;
         }
         .alm-promo-afdian {
-            width: 54px;
-            color: #f472b6;
+            width: 74px;
+            color: color-mix(in srgb, #f7a8c8 88%, var(--alm-text));
         }
         .alm-promo-afdian span {
             font-size: 12px;
@@ -3709,7 +3709,7 @@ export function injectStyles() {
                 border-radius: 10px;
             }
             .alm-promo-afdian {
-                width: 50px;
+                width: 68px;
             }
         }
 

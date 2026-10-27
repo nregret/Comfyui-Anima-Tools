@@ -41,41 +41,28 @@ class AnimaPromptComposerSeedTests(unittest.TestCase):
             "enable_pose": True,
             "character_detail": "trigger_tags",
             "artist_count": 2,
-            "preview_collapsed": False,
         }
 
-    def test_fixed_seed_ignores_stale_persisted_prompt(self):
-        first = self.composer.compose_prompt(
-            **self.inputs,
-            seed=123456,
-            resolved_prompt="stale result, ",
-        )
-        second = self.composer.compose_prompt(
-            **self.inputs,
-            seed=123456,
-            resolved_prompt="another stale result, ",
-        )
+    def test_fixed_seed_is_reproducible(self):
+        first = self.composer.compose_prompt(**self.inputs, seed=123456)
+        second = self.composer.compose_prompt(**self.inputs, seed=123456)
 
-        self.assertNotEqual(first["result"][0], "stale result, ")
+        self.assertTrue(first["result"][0])
         self.assertEqual(first["result"][0], second["result"][0])
         self.assertEqual(
             first["ui"]["anima_prompt_composer"][0],
             second["ui"]["anima_prompt_composer"][0],
         )
 
-    def test_random_seed_reuses_prequeue_resolution(self):
-        result = self.composer.compose_prompt(
-            **self.inputs,
-            seed=-1,
-            resolved_prompt="queued random result, ",
-        )
+    def test_ui_payload_carries_the_output_text(self):
+        result = self.composer.compose_prompt(**self.inputs, seed=-1)
 
-        self.assertEqual(result["result"][0], "queued random result, ")
+        self.assertEqual(result["ui"]["anima_prompt_composer"][0]["_resolved_prompt"], result["result"][0])
 
     def test_fixed_seed_cache_key_is_stable_and_seed_sensitive(self):
-        first = self.composer_class.IS_CHANGED(**self.inputs, seed=7, resolved_prompt="old")
-        repeated = self.composer_class.IS_CHANGED(**self.inputs, seed=7, resolved_prompt="new")
-        changed = self.composer_class.IS_CHANGED(**self.inputs, seed=8, resolved_prompt="old")
+        first = self.composer_class.IS_CHANGED(**self.inputs, seed=7)
+        repeated = self.composer_class.IS_CHANGED(**self.inputs, seed=7)
+        changed = self.composer_class.IS_CHANGED(**self.inputs, seed=8)
 
         self.assertEqual(first, repeated)
         self.assertNotEqual(first, changed)

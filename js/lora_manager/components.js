@@ -29,7 +29,7 @@ export function renderPromoLinks() {
                 ${githubIcon()}
             </a>
             <a class="alm-promo-link alm-promo-afdian" href="${escapeAttr(PROMO_LINKS.afdian)}" target="_blank" rel="noopener noreferrer" title="${escapeAttr(t("Support on Afdian"))}" aria-label="${escapeAttr(t("Support on Afdian"))}">
-                <span>爱发电</span>
+                <span>💗 爱发电</span>
             </a>
         </div>
     `;

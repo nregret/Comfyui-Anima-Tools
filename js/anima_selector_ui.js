@@ -218,6 +218,7 @@ const SELECTOR_CSS = String.raw`
     --sel-favorite: color-mix(in srgb, #e8a924 78%, var(--anima-text));
     --sel-good: color-mix(in srgb, #38b26d 78%, var(--anima-text));
     --sel-danger: color-mix(in srgb, #e5484d 82%, var(--anima-text));
+    --sel-macaron-pink: color-mix(in srgb, #f7a8c8 88%, var(--anima-text));
     position: fixed;
     inset: 0;
     z-index: 10000;
@@ -257,8 +258,7 @@ const SELECTOR_CSS = String.raw`
 .anima-sel-kind > svg { width: 18px; height: 18px; }
 .anima-sel-kind:hover { background: var(--sel-hover); color: var(--sel-text); }
 .anima-sel-kind.active { background: var(--sel-selected); color: var(--sel-accent); }
-.anima-sel-kind b { min-width: 18px; padding: 0 5px; border-radius: 4px; background: var(--sel-rail); color: var(--sel-muted); font-size: 10px; font-weight: 500; line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; }
-.anima-sel-kind.active b { background: var(--sel-accent); color: var(--anima-panel); }
+.anima-sel-kind b { min-width: 20px; padding: 0 6px; border-radius: 10px; background: var(--anima-accent); color: var(--anima-panel); box-shadow: 0 0 0 3px color-mix(in srgb, var(--anima-accent) 28%, transparent); font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
 .anima-sel-topbar-actions { display: flex; align-items: center; gap: 12px; }
 .anima-sel-close, .anima-sel-filter-toggle, .anima-sel-reset, .anima-sel-tab, .anima-sel-status { display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--sel-muted); cursor: pointer; }
 .anima-sel-close { width: 32px; height: 32px; padding: 0; border-radius: 6px; }
@@ -501,6 +501,7 @@ const SELECTOR_CSS = String.raw`
 .anima-sel-links { display: flex; align-items: center; gap: 4px; }
 .anima-sel-links a { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 5px; border-radius: 4px; color: var(--sel-muted); font-size: 11px; text-decoration: none; }
 .anima-sel-links a:hover { background: var(--sel-hover); color: var(--sel-text); }
+.anima-sel-links a.is-afdian { color: var(--sel-macaron-pink); font-weight: 600; }
 .anima-sel-links svg { width: 14px; height: 14px; }
 .anima-sel-escape { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; white-space: nowrap; }
 .anima-sel-escape kbd { padding: 1px 4px; border: 1px solid var(--sel-line); border-radius: 4px; color: var(--sel-muted); font: inherit; }

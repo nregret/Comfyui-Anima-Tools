@@ -187,7 +187,6 @@ class AnimaPromptPlusClipEncode(AnimaPromptPlus):
 
 class AnimaPromptComposer:
     SELECTION_PROPERTY = "anima_prompt_composer_selection"
-    SELECTION_SECTIONS = ("artist", "character", "clothing", "background", "pose")
 
     CHARACTER_DETAIL_MODES = ("trigger", "trigger_tags", "trigger_random_tags")
     CLOTHING_SOURCES = ("author", "danbooru", "character_tags", "random")
@@ -269,60 +268,33 @@ class AnimaPromptComposer:
         )
     )
 
-    # Every input that feeds the resolved prompt.  The queue hook can only draw a
-    # prompt while all of them hold a value: a linked input is still
-    # ``[node_id, output_index]`` until execution, see
-    # ``_resolve_anima_prompt_composer_nodes``.
-    QUEUE_RESOLVE_INPUTS = (
-        "enable_artist",
-        "enable_character",
-        "enable_clothing",
-        "enable_background",
-        "enable_pose",
-        "character_detail",
-        "seed",
-        "artist_count",
-        "character_seed",
-        "character_tag_count",
-        "character_keep_features",
-        "clothing_seed",
-        "clothing_source",
-    )
-
     @classmethod
     def INPUT_TYPES(cls):
+        # Inputs are grouped by section.  The frontend lists required inputs before
+        # optional ones, so everything after `character_detail` is optional to keep
+        # its section together; API prompts saved by 3.2.9 lack the 3.3.0 inputs,
+        # and ComfyUI rejects a missing *required* input, so none of those may
+        # become required.  Old workflows are migrated to this widget order by
+        # js/anima_prompt_composer.js.
         return {
             "required": {
-                "enable_artist": ("BOOLEAN", {"default": True}),
-                "enable_character": ("BOOLEAN", {"default": True}),
-                "enable_clothing": ("BOOLEAN", {"default": True}),
-                "enable_background": ("BOOLEAN", {"default": True}),
-                "enable_pose": ("BOOLEAN", {"default": True}),
-                "character_detail": (list(cls.CHARACTER_DETAIL_MODES), {"default": "trigger"}),
                 "seed": ("INT", {"default": -1, "min": -1, "max": 2147483647}),
+                "enable_artist": ("BOOLEAN", {"default": True}),
                 "artist_count": ("INT", {"default": 1, "min": 0, "max": 20}),
-                "preview_collapsed": ("BOOLEAN", {"default": False}),
-                "resolved_prompt": ("STRING", {"multiline": True, "default": ""}),
+                "enable_character": ("BOOLEAN", {"default": True}),
+                "character_detail": (list(cls.CHARACTER_DETAIL_MODES), {"default": "trigger"}),
             },
-            # The 3.3.0 widgets are appended *here* rather than kept in `required`:
-            # ComfyUI answers a required input that is absent from a prompt with
-            # `required_input_missing`, and Python argument defaults do not bypass
-            # that check, so an API prompt saved with 3.2.9 would stop validating.
-            # A missing optional input is skipped by validation and filled in by
-            # the `compose_prompt` signature at execution time.  The frontend reads
-            # both dicts in order (required first, then optional), and every new
-            # name is appended to the end of its dict, so the widget order - and
-            # with it the `widgets_values` layout of saved workflows - is
-            # unchanged.  Keep this order in sync with _workflow_widget_index().
             "optional": {
-                "character_seed": ("INT", {"default": -1, "min": -1, "max": 2147483647}),
                 "character_tag_count": ("INT", {"default": 3, "min": 0, "max": 30}),
                 "character_keep_features": ("BOOLEAN", {"default": True}),
-                "clothing_seed": ("INT", {"default": -1, "min": -1, "max": 2147483647}),
+                "character_seed": ("INT", {"default": -1, "min": -1, "max": 2147483647}),
+                "enable_clothing": ("BOOLEAN", {"default": True}),
                 "clothing_source": (list(cls.CLOTHING_SOURCES), {"default": "author"}),
+                "clothing_seed": ("INT", {"default": -1, "min": -1, "max": 2147483647}),
+                "enable_background": ("BOOLEAN", {"default": True}),
+                "enable_pose": ("BOOLEAN", {"default": True}),
             },
             "hidden": {
-                "prompt": "PROMPT",
                 "extra_pnginfo": "EXTRA_PNGINFO",
                 "unique_id": "UNIQUE_ID",
             }
@@ -347,8 +319,7 @@ class AnimaPromptComposer:
         if seed < 0:
             return time.time()
 
-        cache_kwargs = {key: value for key, value in kwargs.items() if key not in ("preview_collapsed", "resolved_prompt")}
-        payload = json.dumps(cache_kwargs, ensure_ascii=False, sort_keys=True, default=str)
+        payload = json.dumps(kwargs, ensure_ascii=False, sort_keys=True, default=str)
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     @classmethod
@@ -743,43 +714,6 @@ class AnimaPromptComposer:
                     seen.add(key)
                     output_parts.append(part)
 
-    def _workflow_widget_index(self, name):
-        order = [
-            "enable_artist",
-            "enable_character",
-            "enable_clothing",
-            "enable_background",
-            "enable_pose",
-            "character_detail",
-            "seed",
-            "artist_count",
-            "preview_collapsed",
-            "resolved_prompt",
-            "character_seed",
-            "character_tag_count",
-            "character_keep_features",
-            "clothing_seed",
-            "clothing_source",
-        ]
-        try:
-            return order.index(name)
-        except ValueError:
-            return -1
-
-    def _set_workflow_widget_value(self, workflow_node, widget_name, value):
-        if not isinstance(workflow_node, dict):
-            return
-        widgets_values = workflow_node.get("widgets_values")
-        if isinstance(widgets_values, list):
-            index = self._workflow_widget_index(widget_name)
-            if index < 0:
-                return
-            while len(widgets_values) <= index:
-                widgets_values.append("")
-            widgets_values[index] = value
-        elif isinstance(widgets_values, dict):
-            widgets_values[widget_name] = value
-
     def _find_workflow_node(self, workflow, unique_id):
         if not isinstance(workflow, dict):
             return None
@@ -795,77 +729,23 @@ class AnimaPromptComposer:
                 return node
         return None
 
-    def _parse_selection_payload(self, value):
-        import json
-
-        if isinstance(value, dict):
-            return value
-        text = str(value or "").strip()
-        if not text.startswith("{"):
-            return None
-        try:
-            payload = json.loads(text)
-        except Exception:
-            return None
-        return payload if isinstance(payload, dict) else None
-
-    def _empty_selected(self, resolved_prompt=""):
-        selected = {section: [] for section in self.SELECTION_SECTIONS}
-        selected["_resolved_prompt"] = resolved_prompt
-        return selected
-
-    def _normalize_selected(self, selected, resolved_prompt=""):
-        if not isinstance(selected, dict):
-            return self._empty_selected(resolved_prompt)
-
-        normalized = {}
-        for section in self.SELECTION_SECTIONS:
-            entries = selected.get(section)
-            normalized[section] = entries if isinstance(entries, list) else []
-        normalized["_resolved_prompt"] = resolved_prompt or str(selected.get("_resolved_prompt") or "")
-        return normalized
-
-    def _selection_from_workflow(self, extra_pnginfo, unique_id, resolved_prompt=""):
-        if not isinstance(extra_pnginfo, dict):
-            return None
-        workflow_node = self._find_workflow_node(extra_pnginfo.get("workflow"), unique_id)
-        properties = workflow_node.get("properties") if isinstance(workflow_node, dict) else None
-        if not isinstance(properties, dict):
-            return None
-        selected = self._parse_selection_payload(properties.get(self.SELECTION_PROPERTY))
-        if not selected:
-            return None
-        return self._normalize_selected(selected, resolved_prompt)
-
-    def _record_resolved_prompt(self, prompt, extra_pnginfo, unique_id, resolved_prompt, selected):
-        unique_id_text = str(unique_id) if unique_id is not None else ""
-        selected = self._normalize_selected(selected, resolved_prompt)
-
-        if isinstance(prompt, dict) and unique_id_text:
-            prompt_node = prompt.get(unique_id_text) or prompt.get(unique_id)
-            if isinstance(prompt_node, dict):
-                inputs = prompt_node.setdefault("inputs", {})
-                if isinstance(inputs, dict):
-                    inputs["resolved_prompt"] = resolved_prompt
-
+    def _record_resolved_prompt(self, extra_pnginfo, unique_id, selected):
+        """Store the draw in the image metadata and on the node of the saved workflow."""
         if not isinstance(extra_pnginfo, dict):
             return
-
-        record = {
-            "node_id": unique_id_text,
-            "resolved_prompt": resolved_prompt,
-            "selected": selected,
-        }
+        node_id = str(unique_id)
         records = extra_pnginfo.setdefault("anima_prompt_composer", {})
         if not isinstance(records, dict):
             records = {}
             extra_pnginfo["anima_prompt_composer"] = records
-        records[unique_id_text or "last"] = record
+        records[node_id] = {
+            "node_id": node_id,
+            "resolved_prompt": selected["_resolved_prompt"],
+            "selected": selected,
+        }
 
-        workflow = extra_pnginfo.get("workflow")
-        workflow_node = self._find_workflow_node(workflow, unique_id_text)
+        workflow_node = self._find_workflow_node(extra_pnginfo.get("workflow"), node_id)
         if workflow_node:
-            self._set_workflow_widget_value(workflow_node, "resolved_prompt", resolved_prompt)
             properties = workflow_node.get("properties")
             if not isinstance(properties, dict):
                 properties = {}
@@ -965,71 +845,41 @@ class AnimaPromptComposer:
         selected["_resolved_prompt"] = text
         return selected, text
 
-    def _extract_resolved_prompt_text(self, value):
-        text = str(value or "")
-        payload = self._parse_selection_payload(text)
-        if not payload:
-            return text
-        if isinstance(payload, dict) and isinstance(payload.get("_resolved_prompt"), str):
-            return payload.get("_resolved_prompt") or ""
-        return text
-
     def compose_prompt(
         self,
-        enable_artist,
-        enable_character,
-        enable_clothing,
-        enable_background,
-        enable_pose,
-        character_detail,
         seed,
+        enable_artist,
         artist_count,
-        preview_collapsed,
-        resolved_prompt="",
-        prompt=None,
-        extra_pnginfo=None,
-        unique_id=None,
-        character_seed=-1,
+        enable_character,
+        character_detail,
         character_tag_count=3,
         character_keep_features=True,
-        clothing_seed=-1,
+        character_seed=-1,
+        enable_clothing=True,
         clothing_source="author",
+        clothing_seed=-1,
+        enable_background=True,
+        enable_pose=True,
+        extra_pnginfo=None,
+        unique_id=None,
     ):
-        seed_value = self._int_value(seed, -1)
-        text = self._extract_resolved_prompt_text(resolved_prompt)
-
-        resolve_kwargs = {
-            "enable_artist": enable_artist,
-            "enable_character": enable_character,
-            "enable_clothing": enable_clothing,
-            "enable_background": enable_background,
-            "enable_pose": enable_pose,
-            "character_detail": character_detail,
-            "artist_count": artist_count,
-            "character_seed": character_seed,
-            "character_tag_count": character_tag_count,
-            "character_keep_features": character_keep_features,
-            "clothing_seed": clothing_seed,
-            "clothing_source": clothing_source,
-        }
-
-        # resolved_prompt is persisted in the workflow so the UI can show the
-        # exact result chosen for seed=-1.  It must not override a fixed seed:
-        # in particular, a seed supplied through a link cannot be resolved by
-        # the pre-queue hook and the persisted text may belong to another run.
-        if seed_value >= 0:
-            selected, text = self._resolve_prompt_data(seed=seed_value, **resolve_kwargs)
-        elif text:
-            selected = (
-                self._selection_from_workflow(extra_pnginfo, unique_id, text)
-                or self._normalize_selected(self._parse_selection_payload(resolved_prompt), text)
-            )
-        else:
-            selected, text = self._resolve_prompt_data(seed=seed, **resolve_kwargs)
-        selected["_resolved_prompt"] = text
-        self._record_resolved_prompt(prompt, extra_pnginfo, unique_id, text, selected)
-
-        return {"ui": {"anima_prompt_composer": [selected], "resolved_prompt": [text]}, "result": (text,)}
+        selected, text = self._resolve_prompt_data(
+            enable_artist=enable_artist,
+            enable_character=enable_character,
+            enable_clothing=enable_clothing,
+            enable_background=enable_background,
+            enable_pose=enable_pose,
+            character_detail=character_detail,
+            seed=seed,
+            artist_count=artist_count,
+            character_seed=character_seed,
+            character_tag_count=character_tag_count,
+            character_keep_features=character_keep_features,
+            clothing_seed=clothing_seed,
+            clothing_source=clothing_source,
+        )
+        self._record_resolved_prompt(extra_pnginfo, unique_id, selected)
+        return {"ui": {"anima_prompt_composer": [selected]}, "result": (text,)}
 
 from .lora_manager.nodes import AnimaMultiLoraLoader
 
@@ -1236,60 +1086,6 @@ def _resolve_anima_prompt_plus_clip_nodes(prompt, extra_pnginfo, prompt_plus):
         }
     return updates
 
-def _resolve_anima_prompt_composer_nodes(prompt, extra_pnginfo, composer):
-    """Draw the random prompt of every ``AnimaPromptComposer`` before the queue.
-
-    Resolving here is what keeps the ``resolved_prompt`` widget, the node preview
-    and the prompt that finally runs in sync while ``seed`` is ``-1``, because
-    ``compose_prompt`` reuses the text this hook stored.
-
-    That only holds while every relevant input already has a value.  A linked
-    input is still ``[node_id, output_index]`` at this point, so resolving anyway
-    would persist a prompt built from the widget defaults - a fixed
-    ``character_seed`` of 4242 would be read as ``-1`` and the character would
-    keep changing - and ``compose_prompt`` would then reuse that stale text
-    instead of the value that was evaluated.  Such nodes are deferred to
-    execution, and any text persisted by an earlier run is dropped so that it
-    cannot be reused either.
-    """
-    if not isinstance(prompt, dict):
-        return
-
-    for node_id, node in list(prompt.items()):
-        if not isinstance(node, dict) or node.get("class_type") != "AnimaPromptComposer":
-            continue
-        inputs = node.setdefault("inputs", {})
-        if not isinstance(inputs, dict):
-            continue
-
-        if any(isinstance(inputs.get(name), list) for name in composer.QUEUE_RESOLVE_INPUTS):
-            inputs["resolved_prompt"] = ""
-            continue
-
-        selected, resolved_prompt = composer._resolve_prompt_data(
-            enable_artist=inputs.get("enable_artist", True),
-            enable_character=inputs.get("enable_character", True),
-            enable_clothing=inputs.get("enable_clothing", True),
-            enable_background=inputs.get("enable_background", True),
-            enable_pose=inputs.get("enable_pose", True),
-            character_detail=inputs.get("character_detail", "trigger"),
-            seed=inputs.get("seed", -1),
-            artist_count=inputs.get("artist_count", 1),
-            character_seed=inputs.get("character_seed", -1),
-            character_tag_count=inputs.get("character_tag_count", 3),
-            character_keep_features=inputs.get("character_keep_features", True),
-            clothing_seed=inputs.get("clothing_seed", -1),
-            clothing_source=inputs.get("clothing_source", "author"),
-        )
-        inputs["resolved_prompt"] = resolved_prompt
-        composer._record_resolved_prompt(
-            prompt,
-            extra_pnginfo,
-            node_id,
-            resolved_prompt,
-            selected,
-        )
-
 def _install_anima_prompt_composer_queue_resolver():
     if getattr(PromptServer.instance, "_anima_prompt_composer_resolver_installed", False):
         return
@@ -1321,8 +1117,6 @@ def _install_anima_prompt_composer_queue_resolver():
                     {"nodes": prompt_plus_updates},
                     json_data.get("client_id"),
                 )
-
-            _resolve_anima_prompt_composer_nodes(prompt, extra_pnginfo, composer)
         except Exception as e:
             print(f"[Anima Tools] Failed to resolve random prompt metadata before queue: {e}")
         return json_data
