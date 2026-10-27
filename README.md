@@ -18,13 +18,13 @@
 
 ---
 
-## 3.3.1 LoRA 安全更新
+## LoRA 管理器
 
-LoRA 加载和下载仅接受 `.safetensors`，文件必须位于 ComfyUI 已登记的 LoRA 目录中。使用其他磁盘或目录前，请先在 ComfyUI 的 `extra_model_paths.yaml` 中将其登记为 `loras` 路径，然后重启 ComfyUI。设置面板仍可选择这些目录及其已有子目录。
+Anima Multi LoRA Loader 的节点面板与「LoRA 管理器」弹窗移植自 [CivitaiManager](https://github.com/nregret/CivitaiManager)，使用独立的接口路径、数据目录 `user/anima_tools_lora_manager/` 与样式前缀，可与 CivitaiManager 同时安装。「发现」页固定搜索 Anima 基础模型的 LoRA，「本地 LoRA」页仍可按基础模型筛选。首次启动时自动导入旧版保存的 Civitai 密钥与 LoRA 收藏；旧版的自定义下载目录不再使用，下载统一保存到 ComfyUI 第一个 `loras` 目录下的 `基础模型/分类/` 子文件夹。旧工作流的 `lora_list_json` 无需迁移。
 
-Civitai 密钥不会回传到浏览器；保留掩码不编辑即可继续使用已保存密钥，清空密钥输入框并保存可删除密钥。下载跳转不携带认证头，远程 LoRA 预览仅接受 Civitai 图片地址。
+LoRA 只从 ComfyUI 已登记的 `loras` 目录加载与下载；使用其他磁盘或目录前，请先在 `extra_model_paths.yaml` 中将其登记为 `loras` 路径并重启 ComfyUI。Civitai 密钥不会回传到浏览器，下载跳转不携带认证头。
 
-LoRA loading and downloading require `.safetensors` files within directories registered with ComfyUI. Register other locations under `loras` in `extra_model_paths.yaml` and restart ComfyUI before selecting them. Saved Civitai keys are never returned to the browser; leave the masked field unchanged to keep a key, or clear it and save to remove it. Download redirects do not forward credentials, and remote LoRA previews only accept Civitai image URLs.
+The Anima Multi LoRA Loader panel and its LoRA Manager popup are ported from CivitaiManager and can be installed alongside it. Discover only searches Anima LoRAs. The Civitai key and LoRA favorites saved by the previous selector are imported on first start; the old custom download directory is no longer used; downloads go to `<base model>/<category>/` under the first registered `loras` directory. LoRAs are loaded and downloaded only within ComfyUI's registered `loras` directories, saved Civitai keys are never returned to the browser, and download redirects do not forward credentials.
 
 ## 🖼️ 视觉预览 (Visual Preview)
 
@@ -99,10 +99,11 @@ LoRA loading and downloading require `.safetensors` files within directories reg
 *   **分类与特征筛选：** 支持按礼服、日常、制服、泳装、奇幻、性感等大类，以及蕾丝、露肩、长靴、吊袜带等细分特征快速定位。
 *   **收藏与自定义项：** 支持用户收藏分组、自定义服装项与备注式管理，便于沉淀常用穿搭模板。
 
-### 💻 4. 规范的前端交互设计 (Frontend UI Design)
-*   **3:4 黄金比例预览卡片：** 贴合动漫人像、立绘和 CG 的美学比例。带有平滑的 Hover 缩放微动效以及阴影表现。
-*   **精准分页与页码直达：** 分页控制器直观显示当前页数与总记录。特设页码直接跳转输入框，输入页码按回车即可直达。
-*   **多源 CDN 智能切换：** 提供 `JsDelivr`、`GitHub Raw` 和 `Statically` 等多条图片 CDN 通道，用户可在面板中自由切换，确保样图快速加载。
+### 💻 4. 统一的选择器界面 (Unified Selector UI)
+*   **统一弹窗布局：** 画师、角色、服装、背景、姿势五个选择器共用同一套界面：左侧「全部 / 收藏夹 / 已选择」导航、可折叠的筛选面板、卡片网格与右侧详情面板，配色跟随 ComfyUI 明暗主题。
+*   **多选与详情：** 点击卡片即可多选；卡片上的详情按钮可只查看大图、提示词（点击复制）、收藏分组与备注而不改变选择。
+*   **精准分页与页码直达：** 分页栏显示当前范围与总数，输入页码按回车即可直达。
+*   **多源图片回退：** 画师样图依次尝试 Animadex、JsDelivr、GitHub Raw 与 Statically，加载失败时自动切换。
 
 ### 🎲 5. 随机提示词整合节点 (Anima Prompt Composer)
 *   **运行时自动随机：** 工作流运行到节点时自动从全量画师、角色、服装、背景与姿势数据中随机选择内容，不包含用户自定义项。
@@ -206,8 +207,8 @@ LoRA loading and downloading require `.safetensors` files within directories reg
 
 ### 5. 🧩 Anima Multi LoRA Loader (多 LoRA 加载器)
 *   `model`: ComfyUI 标准模型输入。
-*   `lora_list_json` (String): 前端 LoRA 选择器维护的 LoRA 列表，包含文件名、启用状态与模型强度。
-*   前端面板支持本地 LoRA 预览、Civitai 搜索、下载进度、收藏、持久缩略图缓存与快速二次打开。
+*   `lora_list_json` (String): LoRA 管理器维护的 LoRA 列表，包含文件名、所在目录、启用状态与模型强度。
+*   节点面板可调整强度、启用或移除 LoRA；「LoRA 管理器」弹窗提供 Anima LoRA 发现与下载、本地 LoRA、收藏夹、已应用排序与下载任务。
 
 ---
 
@@ -216,19 +217,20 @@ LoRA loading and downloading require `.safetensors` files within directories reg
 ```text
 Anima-Tools/
 ├── __init__.py                # 插件注册入口与前端静态 Web 资源声明
-├── nodes.py                   # Python 核心后端（包含画师、角色、服装、随机整合与 LoRA 加载等）
-├── anima_lora_api.py          # Civitai LoRA 搜索、下载与配置持久化
+├── nodes.py                   # Python 核心后端（包含画师、角色、服装、随机整合等）
+├── lora_manager/              # LoRA 管理器后端与 Multi LoRA Loader 节点（移植自 CivitaiManager）
 ├── README.md                  # 说明文件
 ├── js/
-│   ├── anima_artist_selector.js     # 画师风格视觉选择器前端核心面板交互逻辑
-│   ├── anima_character_selector.js  # 角色图鉴选择器前端核心属性检索与交互面板
-│   ├── anima_clothing_selector.js   # 服装提示词选择器前端核心面板交互逻辑
+│   ├── anima_gallery_selector.js    # 画师/角色/服装/背景/姿势选择器共用弹窗（导航、筛选、卡片、详情、分页、收藏）
+│   ├── anima_artist_selector.js     # 画师选择器数据适配（图片源、排序、@ 输出格式）
+│   ├── anima_character_selector.js  # 角色选择器数据适配（属性筛选、官方触发词与 Tags）
+│   ├── anima_tag_selectors.js       # 服装、背景、姿势选择器数据适配（分类、特征、中英双语）
 │   ├── anima_prompt_composer.js     # 画师、角色、服装随机整合节点预览逻辑
-│   ├── anima_lora_selector.js       # 多 LoRA 搜索、下载、本地预览与缓存面板
-│   ├── anima_lora_node_widgets.js   # LoRA 节点内启用开关、名称与移除控制条
-│   ├── anima_selector_ui.js          # 选择器共享 UI 基础组件、设计令牌与图库样式骨架
+│   ├── anima_lora_node.js           # Multi LoRA Loader 节点面板与 LoRA 管理器弹窗
+│   ├── lora_manager/                # LoRA 管理器共享模块（接口、卡片、详情、下载、收藏、样式、主题取色）
+│   ├── anima_selector_ui.js         # 选择器共享样式（跟随 ComfyUI 主题）、图标与对话框等基础组件
 │   ├── anima_image_utils.js         # 共享图片加载缓存工具
-│   ├── anima_promo_links.js         # GitHub 与爱发电跳转入口共享组件
+│   ├── anima_promo_links.js         # GitHub 与爱发电链接
 │   ├── data.js                      # 40,000+ 详尽画师数据库 (含 CDN 映射与独特度评分)
 │   ├── character_data.js            # 动漫角色发色、瞳色、作品系列、同人热度多维数据库
 │   ├── clothing_data.js             # 服装提示词与预览图数据库

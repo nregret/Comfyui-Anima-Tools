@@ -398,15 +398,15 @@
   },
   "AnimaMultiLoraLoader": {
     "display_name": "Anima 多 LoRA 加载器",
-    "description": "通过带缓存的视觉面板选择、下载、预览并批量应用多个 Anima LoRA 模型。",
+    "description": "按顺序加载并应用通过 Anima LoRA 管理器选择的多个本地 LoRA。",
     "inputs": {
       "model": {
         "name": "模型",
-        "tooltip": "要应用所选 LoRA 的基础模型。"
+        "tooltip": "按从上到下的顺序应用已启用 LoRA 的模型。"
       },
       "lora_list_json": {
         "name": "LoRA 列表",
-        "tooltip": "由可视化 LoRA 选择器维护的 JSON 数据，包含文件名与模型强度配置。"
+        "tooltip": "由 LoRA 管理器弹窗维护的序列化 LoRA 配置。"
       }
     },
     "outputs": {

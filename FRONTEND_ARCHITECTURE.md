@@ -1,42 +1,46 @@
 # Anima Tools Frontend Architecture
 
-## Refactor goal
+## Selector popups
 
-The frontend is being migrated from independent selector implementations to a shared UI foundation without changing node behavior, workflow serialization, backend APIs, persisted favorites, or local storage keys.
+The artist, character, clothing, background, and pose selectors share one popup implemented in `js/anima_gallery_selector.js`. Its layout and interaction model follow the CivitaiManager selector:
+
+- top bar with title, filter-panel toggle, and close button
+- left icon rail: All / Favorites / Selected
+- collapsible filter panel: favorite groups (Favorites tab) and attribute filters as searchable combos
+- toolbar with page title, sort and display-language menus, a More menu (copy / clear selected), search, and active-filter chips
+- card grid with paging; clicking a card toggles selection, the info button opens the detail panel without selecting
+- detail panel with preview, select, favorite and group management, prompt tags (click to copy), facts, and note
+- footer with selection status, links, and apply buttons
+
+Colors follow the ComfyUI theme (`--comfy-menu-bg`, `--fg-color`, `--primary-background`), so light and dark themes both work. All styles live in `js/anima_selector_ui.js` under the `anima-sel-` prefix and are injected once.
+
+## Selector adapters
+
+Each selector supplies a configuration object to `openGallerySelector`:
+
+| File | Selectors |
+| --- | --- |
+| `anima_artist_selector.js` | Artist |
+| `anima_character_selector.js` | Character |
+| `anima_tag_selectors.js` | Clothing, Background, Pose |
+
+An adapter owns its data, image URLs, sort orders, filters, saved-filter format, card and detail metadata, and prompt output. The shared popup owns layout, selection, paging, favorites persistence, and widget write-back.
+
+## LoRA manager
+
+The Anima Multi LoRA Loader node and its "LoRA Manager" popup are copied from CivitaiManager (commit `e56604d`): `js/anima_lora_node.js` plus the modules in `js/lora_manager/`, backed by the Python package `lora_manager/`. The copy is isolated from an installed CivitaiManager:
+
+- API under `/anima-tools/lora-manager/api`, data in `user/anima_tools_lora_manager/`
+- CSS classes, CSS variables, node properties, and local storage keys use the `alm` prefix
+- theme colors are sampled from the ComfyUI menu by `js/lora_manager/theme.js`
+
+Differences from CivitaiManager: Discover always searches Anima LoRAs (the base model filter only applies to Local LoRAs), the library only scans `loras` roots, and node entries without a storage root (older Anima workflows) match a LoRA in any root. On first start the backend imports the Civitai API key from `user/anima_lora_config.json` and the LoRA favorites from `user/anima_tools_favorites.json`.
 
 ## Compatibility contract
 
-The following are treated as stable external contracts:
-
 - Python node class names, widget names, inputs, outputs, and prompt formatting
-- Workflow serialization and restoration
-- `/anima-tools/*` API paths and payload formats
-- Favorites, groups, custom-item data, and local storage keys
-- Selector apply, cancel, copy, search, filter, pagination, and restore behavior
-- Existing translation keys
+- `/anima-tools/*` API paths and payload formats; favorites are saved per section
+- Favorite groups, custom items, notes, and their stored shapes
+- Local storage keys for sort, page, scroll, filters, and display language
 
-## Shared UI foundation
-
-`js/anima_selector_ui.js` owns selector-agnostic frontend behavior:
-
-- design tokens for shared surfaces, overlays, borders, shadows, and layers
-- DOM creation, clipboard fallback, HTML escaping, prompt token parsing, and debounce
-- secondary modal shells, confirmation button rows, and toast notifications
-- the common visual-gallery stylesheet, parameterized by selector kind
-
-Business data, filters, selection state, favorites, persistence, and node write-back remain inside each selector adapter.
-
-## Migration status
-
-| Selector | Shared primitives | Shared gallery stylesheet | Notes |
-| --- | --- | --- | --- |
-| Clothing | Yes | Yes | Existing selection restoration remains unchanged |
-| Background | Yes | Yes | Existing one-way selection behavior remains unchanged |
-| Pose | Yes | Yes | Existing one-way selection behavior remains unchanged |
-| Artist | Pending | Pending | Large dataset, CDN behavior, and unique card metadata need a dedicated adapter |
-| Character | Pending | Pending | Multi-dimensional filters need a dedicated adapter |
-| LoRA | Node controls only | Not applicable | Shared node-row controls are complete; remote search, download, local files, and detail panel still need a dedicated shell |
-
-## Migration rule
-
-Selectors are migrated incrementally. A selector is considered migrated only when generated styles are equivalent to its previous inline styles, JavaScript parses successfully, shared primitive tests pass, and its persistence and node write-back contracts remain untouched.
+Clicking outside the popup closes it without applying, the same as Esc and Cancel.

@@ -28,12 +28,3 @@ export function markImageLoaded(url) {
 export function isImageLoaded(url) {
     return url && window._animaLoadedImageUrls.has(url);
 }
-
-/**
- * 清空会话内图片已加载标记；不会影响浏览器磁盘缓存或任何用户配置
- */
-export function clearImageLoadedCache() {
-    if (window._animaLoadedImageUrls?.clear) {
-        window._animaLoadedImageUrls.clear();
-    }
-}

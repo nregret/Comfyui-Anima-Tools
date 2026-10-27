@@ -7,20 +7,18 @@ function createFakeElement(tag) {
         className: "",
         dataset: {},
         innerText: "",
-        removed: false,
-        style: { cssText: "" },
         appendChild(child) {
             this.children.push(child);
             return child;
         },
-        remove() {
-            this.removed = true;
-        },
     };
 }
 
+const head = createFakeElement("head");
 globalThis.document = {
+    head,
     createElement: createFakeElement,
+    getElementById: id => head.children.find(child => child.id === id) || null,
 };
 
 const ui = await import("../js/anima_selector_ui.js");
@@ -29,47 +27,31 @@ assert.deepEqual(
     ui.splitPromptTokens("_raw_:one, two, , three "),
     ["one", "two", "three"],
 );
+assert.deepEqual(ui.splitPromptTokens(["a, b", "_raw_:c"]), ["a", "b", "c"]);
 assert.equal(ui.normalizePromptToken("_raw_:Hello World "), "hello world");
 assert.equal(ui.escapeHtml(`<tag a="b">'&`), "&lt;tag a=&quot;b&quot;&gt;&#39;&amp;");
+assert.equal(ui.escapeHtml(undefined), "");
+assert.equal(ui.formatCount(999), "999");
+assert.equal(ui.formatCount(103500), "103.5k");
+assert.equal(ui.formatCount(2000), "2k");
+
+const shuffled = ui.shuffleInPlace([1, 2, 3, 4, 5]);
+assert.deepEqual([...shuffled].sort(), [1, 2, 3, 4, 5]);
 
 const element = ui.createEl("button", "sample", "Label");
 assert.equal(element.className, "sample");
 assert.equal(element.innerText, "Label");
 
-const backgroundStyle = ui.createGallerySelectorStyleSheet("background");
-assert.match(backgroundStyle.textContent, /\.anima-background-card/);
-assert.match(backgroundStyle.textContent, /@keyframes animaBackgroundFadeIn/);
+for (const name of ["grid", "star", "applied", "palette", "user", "shirt", "image", "pose", "close", "check", "github"]) {
+    assert.match(ui.selectorIcon(name), /^<svg class="anima-sel-icon"/);
+}
+assert.doesNotMatch(ui.selectorIcon("star"), /undefined/);
 
-const poseStyle = ui.createGallerySelectorStyleSheet("pose");
-assert.match(poseStyle.textContent, /\.anima-pose-card/);
-assert.match(poseStyle.textContent, /@keyframes animaPoseFadeIn/);
-assert.doesNotMatch(poseStyle.textContent, /anima-background/);
-
-const clothingStyle = ui.createGallerySelectorStyleSheet("clothing");
-assert.match(clothingStyle.textContent, /\.anima-clothing-card/);
-assert.match(clothingStyle.textContent, /@keyframes animaClothingFadeIn/);
-assert.doesNotMatch(clothingStyle.textContent, /anima-background/);
-assert.throws(() => ui.createGallerySelectorStyleSheet("invalid kind"));
-
-const dialog = ui.createModalShell({ maxWidth: 460, animationName: "animaPoseFadeIn" });
-assert.equal(dialog.children.length, 1);
-assert.match(dialog.children[0].style.cssText, /max-width: 460px/);
-assert.match(dialog.children[0].style.cssText, /animation: animaPoseFadeIn/);
-
-let confirmed = false;
-const buttons = ui.createModalButtons({
-    dialog,
-    onConfirm: async () => {
-        confirmed = true;
-        return true;
-    },
-    cancelText: "Cancel",
-    confirmText: "OK",
-    buttonClass: "anima-pose-btn",
-});
-assert.equal(buttons.children.length, 2);
-await buttons.children[1].onclick();
-assert.equal(confirmed, true);
-assert.equal(dialog.removed, true);
+ui.injectSelectorStyles();
+ui.injectSelectorStyles();
+assert.equal(head.children.length, 1);
+assert.equal(head.children[0].id, "anima-selector-style");
+assert.match(head.children[0].textContent, /\.anima-sel-overlay \{/);
+assert.match(head.children[0].textContent, /--anima-accent: var\(--primary-background/);
 
 console.log("anima_selector_ui tests passed");

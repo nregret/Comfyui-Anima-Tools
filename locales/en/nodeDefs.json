@@ -398,15 +398,15 @@
   },
   "AnimaMultiLoraLoader": {
     "display_name": "Anima Multi LoRA Loader",
-    "description": "Select, download, preview, and apply multiple Anima LoRA models with cached local thumbnails.",
+    "description": "Load and apply multiple local LoRAs selected with the Anima LoRA manager.",
     "inputs": {
       "model": {
         "name": "Model",
-        "tooltip": "The base model to apply selected LoRAs to."
+        "tooltip": "The model that receives the enabled LoRAs in top-to-bottom order."
       },
       "lora_list_json": {
         "name": "LoRA List",
-        "tooltip": "JSON data maintained by the visual LoRA selector, including filenames and model strengths."
+        "tooltip": "Serialized LoRA configuration managed by the LoRA Manager popup."
       }
     },
     "outputs": {
