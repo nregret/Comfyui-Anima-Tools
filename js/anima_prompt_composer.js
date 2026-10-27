@@ -45,6 +45,7 @@ app.registerExtension({
 
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name !== "AnimaPromptComposer") return;
+        const defaults = inputDefaults(nodeData);
 
         const origOnCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
@@ -57,7 +58,7 @@ app.registerExtension({
         const origOnConfigure = nodeType.prototype.onConfigure;
         nodeType.prototype.onConfigure = function (info) {
             const result = origOnConfigure?.apply(this, arguments);
-            migrateLegacyWidgetValues(this, info?.widgets_values);
+            migrateLegacyWidgetValues(this, info?.widgets_values, defaults);
             renderResult(this);
             return result;
         };
@@ -90,8 +91,29 @@ function parseSelection(value) {
     return { _resolved_prompt: text };
 }
 
-function migrateLegacyWidgetValues(node, values) {
+function inputDefaults(nodeData) {
+    const inputs = { ...nodeData.input?.required, ...nodeData.input?.optional };
+    return Object.fromEntries(Object.entries(inputs).map(([name, spec]) => [name, spec[1]?.default]));
+}
+
+// Old values can be null (a widget that did not exist when the workflow was saved) or come from a shifted slot.
+function isUsableValue(widget, value) {
+    if (value === null || value === undefined) return false;
+    if (Array.isArray(widget.options?.values)) return widget.options.values.includes(value);
+    if (typeof widget.value === "boolean") return typeof value === "boolean";
+    if (typeof widget.value === "number") {
+        return typeof value === "number" && value >= (widget.options?.min ?? -Infinity) && value <= (widget.options?.max ?? Infinity);
+    }
+    return true;
+}
+
+// The frontend restored the old values by position into the new layout; start from the defaults and take each old value by name.
+function migrateLegacyWidgetValues(node, values, defaults) {
     if (typeof values?.[0] !== "boolean") return;
+    for (const [name, value] of Object.entries(defaults)) {
+        const widget = getWidget(node, name);
+        if (widget) widget.value = value;
+    }
     LEGACY_WIDGET_ORDER.forEach((name, index) => {
         if (index >= values.length) return;
         const value = values[index];
@@ -102,7 +124,7 @@ function migrateLegacyWidgetValues(node, values) {
             if (selection && !node.properties[SELECTION_PROPERTY]) node.properties[SELECTION_PROPERTY] = selection;
         } else {
             const widget = getWidget(node, name);
-            if (widget) widget.value = value;
+            if (widget && isUsableValue(widget, value)) widget.value = value;
         }
     });
 }

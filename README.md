@@ -119,7 +119,13 @@ The Anima Multi LoRA Loader panel and its LoRA Manager popup are ported from Civ
 *   **分区编辑统一拼接：** 质量提示词、画师、角色、服装、姿势、背景与额外提示词分区编辑，按固定顺序拼接，并自动避免双逗号与多余空格。
 *   **按分区随机：** 节点上的「随机」开关可让任意分区在每次运行时自动随机一项。
 
-### 🌐 7. 原生多语言跟随 (Native i18n)
+### 🎲 7. 随机 Danbooru 图 + 标签 (Anima Danbooru Random Image)
+*   **出图与标签成对输出：** 从 Danbooru 按 `query_tags` 随机抽一张**静态**图，同时把它自己的标签按 Anima 写法分组输出（下划线转空格、小写、去重、英文逗号 + 空格连接、画师加 `@` 前缀），出图与提示词一次拿齐，直接喂 `CLIPTextEncode`。
+*   **可复现随机：** `seed = -1` 每次运行重新抽；给定固定 seed 时由「**作品 id 锚点 + id 窗口**」推导（**不是页码**——站点默认新帖在前，一次上传就会把整页往后推），窗口**截止于锚点**，所以同一 seed 稳定复现，且此后新增的作品（id 一定更大）落不进这个窗口。
+*   **守标签限额与抓取礼仪：** 默认 `rating:general`（`rating:*` 不计入标签数，固定 seed 追加的 `id:*` 窗口同样不占名额）、默认屏蔽 `artist_name` / `watermark` 等上传噪声标签、默认取 `sample` 档；动图与非静态帖改由客户端筛掉重试，**不用会占名额的 `-animated`**。
+*   **本地缓存与网络兜底：** 图片按「档位 + md5」落到 `input/danbooru_cache` 复用（换 `size` 不会拿旧档顶替，缓存超过 500 个只清自己写的旧文件）；请求只用标准库（守 `dependencies = []`），DNS 被污染时用内置 Cloudflare 地址兜底（仅在正常请求失败时启用）。
+
+### 🌐 8. 原生多语言跟随 (Native i18n)
 *   支持中英双语，自动识别并实时跟随 ComfyUI 原生的多语言设置（`Comfy.Locale`），无需手动配置。
 
 ---
@@ -150,7 +156,7 @@ The Anima Multi LoRA Loader panel and its LoRA Manager popup are ported from Civ
 
 ## 📖 节点参数说明 (Nodes Reference)
 
-本套件共提供 9 个节点，放置于 `AnimaArt` 分类目录下：
+本套件共提供 10 个节点，放置于 `AnimaArt` 与 `Anima/Danbooru` 分类目录下：
 
 ### 1. 🎨 Anima Artist / Character / Clothing / Background / Pose Selector (单类选择器)
 *   `{分类}_tags` (String): 由该分类的选择器填入，也可以手动修改；画师会统一整理为 `@画师名` 格式。
@@ -187,12 +193,34 @@ The Anima Multi LoRA Loader panel and its LoRA Manager popup are ported from Civ
 *   输出为单个 `STRING`，顺序固定为 **画师 -> 角色 -> 服装 -> 背景 -> 姿势**。节点底部显示本次结果的提示词与预览图（可折叠），并随工作流和图片元数据一起保存。
 
 > [!NOTE]
-> 旧工作流打开时会按名称自动迁移到新的选项顺序；相同种子与选项抽出的提示词与旧版完全一致。旧的 API 工作流（含 `preview_collapsed` / `resolved_prompt` 字段）仍可直接运行，这两个字段会被忽略。
+> 旧工作流打开时会按名称自动迁移到新的选项顺序，缺失（`null`）或越界的旧值会还原为默认值；相同种子与选项抽出的提示词与旧版完全一致。旧的 API 工作流（含 `preview_collapsed` / `resolved_prompt` 字段）仍可直接运行，这两个字段会被忽略。
 
 ### 4. 🧩 Anima Multi LoRA Loader (多 LoRA 加载器)
 *   `model`: ComfyUI 标准模型输入。
 *   `lora_list_json` (String): LoRA 管理器维护的 LoRA 列表，包含文件名、所在目录、启用状态与模型强度。
 *   节点面板可调整强度、启用或移除 LoRA；「LoRA 管理器」弹窗提供 Anima LoRA 发现与下载、本地 LoRA、收藏夹、已应用排序与下载任务。
+
+### 5. 🎲 Anima Danbooru Random Image (随机 Danbooru 图 + 标签)
+
+从 Danbooru 随机抽一张图，并把它的标签按 Anima 的写法分组输出（`_` 转空格、小写、去重、英文逗号 + 空格连接、画师加 `@` 前缀），既能喂给 `CLIPTextEncode` 当提示词灵感，也能当参考图。
+
+*   `query_tags` (String): 查询标签，默认 `rating:general`。空格或逗号都能分隔；**匿名与免费账号最多 2 个标签**，其中 `rating:*` 与 `id:*` 不占名额，而 `random:1`、`order:*` 与 `-tag` 占名额（站点源码 `PostQuery::UNLIMITED_METATAGS` 里列着 `rating`/`id`，没有 `order`/`random`；官方等级表：匿名 2 / 免费会员 2 / Gold 6 / Platinum 不限）。超限时 Danbooru 返回 `TagLimitError`，节点会把原文和提示一起报出来。**想看多档就写 `rating:general,sensitive,explicit`** —— Danbooru 把这种逗号列表当成「任一档即可」的**单个**查询词（也支持缩写 `rating:g,s,e`，而且**一个标签名额都不占**：实测 `1girl rating:g,s,e` 能用，`1girl solo random:1` 会被 422 拒），节点会把它原样保留、不会被逗号拆成多个标签；不写 `rating:` 时站点默认**四档**全含（Danbooru 还有 `questionable`/`q`，想连它一起抽就写 `rating:g,s,e,q`），但本节点会把空输入兜底成 `rating:general`（安全默认）。注意各档是按帖子实际数量抽的，不是均分。
+*   `seed` (Int): `-1` = 每次运行重新抽（真随机，覆盖全库）；固定值 = 由种子推导**作品 id 锚点**（`sha1("danbooru-seed:<seed>:<attempt>") % id_ceiling + 1`），再取「**该 id 及以下最近的一张**符合 query 的帖子」，**可复现**。**为什么不用页码**：`/posts.json` 默认新帖在前，站点每上传一批作品就把所有页整体往后推，同一个「第 N 页第 M 条」几周后必然指向别的作品（旧版就是这样失去复刻能力的）；id 只增不减、永不复用，所以锚点不会被挤走。**窗口为什么截止于锚点、又按 id 最大取**：上传的作品 id 一定比锚点大、落在窗口之外，永远挤不进来；而站点一次请求的 `limit` 上限丢的是**最旧**的那几条 id —— 取最新的那条，正好在截断碰不到的一头（反过来「从锚点往后找、取最小 id」，宽窗口被截断后就只剩「窗口里最新 200 条中最旧的那条」，新帖或删帖都会让它漂）。锚点附近没有匹配时，先在**同一锚点**把窗口向前逐级放大（200 → 2,000 → 20,000 → 200,000），再按固定规则换下一个锚点（最多 `max_attempts` 个），整个过程仍是 seed 的纯函数，不会变成「随便再抽一张」；一次网络级失败也只会**重问同一个窗口**，不会靠换窗口把结果换掉。外接（链接）种子交给 ComfyUI 自身的缓存签名判断。
+*   `size` (Combo: `sample` / `original` / `720x720` / `360x360` / `180x180`): 默认 `sample`；原图常有 5MB+ 的超大分辨率，参考用途建议保持 `sample`。**缓存按「档位 + md5」分别存**，换档会真的重新下载该档，不会拿旧档顶替。
+*   `tag_character` / `tag_copyright` / `tag_general` (Boolean): 默认开启，分别对应 `tag_string_character` / `_copyright` / `_general`。
+*   `tag_artist` (Boolean): 默认关闭；开启后画师标签自动加 `@` 前缀（Anima 的画师写法）。
+*   `tag_meta` (Boolean): 默认关闭。meta 基本是上传元信息（`highres`、`character_request` 等），放进提示词没有好处。
+*   `block_tags` / `use_default_blocklist` (String / Boolean): 默认屏蔽 `artist_name`、`character_request`、`commentary_request`、`bad_id`、`watermark`、`english_text` 等「描述上传」而非「描述画面」的标签；可追加自己的屏蔽词，或整体关掉。**每行/每个逗号一个标签**（空格不切分，所以 `black hair` 与 `black_hair` 都表示同一个标签）。**支持通配符**：`*` 匹配任意长度（含空），`?` 匹配恰好一个字符 —— `*censor*` 一条就能同时过滤 `bar censor` 和 `censored`，`hair*` / `*hair` 分别卡开头和结尾；**不带通配符的条目仍是整词匹配**（写 `smile` 不会误伤 `smiley`）。
+*   `login` / `api_key` (String): 可选。留空则读环境变量 `DANBOORU_LOGIN` / `DANBOORU_API_KEY`（**不要写进工作流**，也不发给 CDN）。API key 能解锁被审查（censored）标签、读写收藏，但**不会提升标签数量上限**。
+*   `max_attempts` / `timeout` / `cache_dir`: 重试次数（真随机模式 = 重抽次数；固定 seed = 最多换几个 id 锚点）、单次请求超时、图片缓存目录（默认 `input/danbooru_cache`）。整次运行另有总预算 `timeout × max_attempts`（默认 60 秒），用尽即报错而不是继续干等；**读超时 / 连接中途断开也算一次网络级失败**，会在剩余尝试与预算内重试（不是一次卡住就整轮失败），而且重试的是**同一个窗口**。缓存文件名是 `<档位>-<md5>.<ext>`，只保留最新 **500** 个（只清理本节点写的文件）。
+*   `id_ceiling` (Int): 固定 seed 的**采样空间上限**，默认 `12,500,000`（2026-10-18 站点最大作品 id 为 `12,401,582`）。它必须**刚好略高于当前最大 id**：留的那一小截空区会随站点上传自动补满；设成远大于现有作品数（如 2³¹）会让绝大多数 seed 永久落空、只能空转重试（以 12.4M 为真实上限时，`12.5M` 的空区 0.8%，`2³¹` 是 99.4%）。窗口是往锚点**以下**找的，所以锚点只比当前最大 id 高一点时仍会落到最近的作品上；真正空转的是比最宽窗口（20 万 id）还高的那一截。调大 = 换了随机空间，**旧 seed 的对应关系会全部重排**；工作流里保存的是当时的值，所以不会因为我们以后调默认值而悄悄变化。固定 seed 只在这个空间内采样，之后的新作品只能用 `seed = -1` 抽到。
+*   输出：`image` (IMAGE)、`artist` / `character` / `copyright` / `general`（分组标签字符串）、`prompt`（按 **画师 → 角色 → 作品 → 其余 → meta** 顺序拼好的整串）、`meta`（JSON：id / rating / score / source / 图片地址 / 是否命中缓存 等）。
+*   只取静态图：`file_ext` 只接受 jpg/jpeg/png/webp/gif，带 `animated` / `video` 标签的帖子直接跳过（**刻意不用 `-animated` 排除**，因为那会占掉一个标签名额）。
+*   网络兜底：本网络下 `danbooru.donmai.us` 会被错误解析（实测拿到 Dropbox 段的地址、请求超时），节点内置了实测可用的 Cloudflare 地址，**仅在正常请求失败时**启用（连接仍按真实域名做 SNI 与证书校验）；也可以把域名交给启动层的 hosts 钉定（`launch/dns.py`，3.1.1 起启动即钉）。**读超时（连上了但响应体不再往外送）同样算连接级失败**，一样会去试内置 IP，并在报错里说明「多少秒内没读完、把 timeout 调大」，不再抛裸的 `The read operation timed out`。⚠️ **第一次请求仍会白等一个 `timeout`**（DNS 投毒：解析成功但连不上），之后同一进程会记住该域名的兜底路线，不再重复等待（若该兜底地址被站点 **403/429** 拦下，节点会自动交回正常解析再试一次，避免一个被挑战的地址把域名永久钉死）；想连第一次也省掉，就把 `timeout` 调到 `6~10`，或让启动层先钉 hosts。
+*   零第三方依赖：请求只用标准库，Pillow / torch 仅在 ComfyUI 运行时用于解码。
+
+> [!NOTE]
+> `robots.txt` 禁止抓取 `/*.json`，所以本节点刻意把请求压到最低：命中常规情况（真随机一次抽中、或固定 seed 的第一个窗口就有结果）是 **1 次搜索 + 1 次图片**（图片命中缓存则只要 1 次）；只有真随机抽到视频/动图、或固定 seed 的锚点附近为空才会追加搜索，且都受 `timeout × max_attempts` 总预算约束。不做批量预抓，默认只取 `rating:general`。
 
 ---
 
@@ -202,6 +230,7 @@ The Anima Multi LoRA Loader panel and its LoRA Manager popup are ported from Civ
 Anima-Tools/
 ├── __init__.py                # 插件注册入口与前端静态 Web 资源声明
 ├── nodes.py                   # Python 核心后端（包含画师、角色、服装、随机整合等）
+├── nodes_danbooru.py          # Anima Danbooru Random Image 节点（随机 Danbooru 图 + 分组标签）
 ├── lora_manager/              # LoRA 管理器后端与 Multi LoRA Loader 节点（移植自 CivitaiManager）
 ├── README.md                  # 说明文件
 ├── js/

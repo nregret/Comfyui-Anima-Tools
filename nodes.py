@@ -360,8 +360,15 @@ class AnimaPromptComposer:
         import json
         import time
 
+        seed = kwargs.get("seed", -1)
+        if seed is None or isinstance(seed, (list, tuple, dict)):
+            # IS_CHANGED only receives constants: a linked seed arrives as (None,)
+            # or, in older ComfyUI, as None or the link itself.  A constant answer
+            # leaves the decision to ComfyUI's own signature, which covers the link
+            # and the upstream node, so a fixed linked seed can stay cached.
+            return "linked"
         try:
-            seed = int(kwargs.get("seed", -1))
+            seed = int(seed)
         except Exception:
             seed = -1
         if seed < 0:
