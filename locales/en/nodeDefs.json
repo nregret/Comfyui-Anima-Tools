@@ -1,4 +1,109 @@
 {
+  "AnimaArtistSelector": {
+    "display_name": "Anima Artist Selector",
+    "description": "Pick artist tags visually and output them after the optional upstream text, followed by the extra text. Chain several selectors through opt_prompt.",
+    "inputs": {
+      "artist_tags": {
+        "name": "Artist Tags",
+        "tooltip": "Filled by the artist selector and editable by hand. Artist names are written as @name."
+      },
+      "extra_text": {
+        "name": "Extra Text",
+        "tooltip": "Text appended after the selected tags."
+      },
+      "opt_prompt": {
+        "name": "Upstream Prompt",
+        "tooltip": "Optional text placed before the selected tags, for example the output of another selector."
+      }
+    },
+    "outputs": {
+      "0": { "name": "text" }
+    }
+  },
+  "AnimaCharacterSelector": {
+    "display_name": "Anima Character Selector",
+    "description": "Pick character tags visually and output them after the optional upstream text, followed by the extra text. Chain several selectors through opt_prompt.",
+    "inputs": {
+      "character_tags": {
+        "name": "Character Tags",
+        "tooltip": "Filled by the character selector and editable by hand."
+      },
+      "extra_text": {
+        "name": "Extra Text",
+        "tooltip": "Text appended after the selected tags."
+      },
+      "opt_prompt": {
+        "name": "Upstream Prompt",
+        "tooltip": "Optional text placed before the selected tags, for example the output of another selector."
+      }
+    },
+    "outputs": {
+      "0": { "name": "text" }
+    }
+  },
+  "AnimaClothingSelector": {
+    "display_name": "Anima Clothing Selector",
+    "description": "Pick clothing tags visually and output them after the optional upstream text, followed by the extra text. Chain several selectors through opt_prompt.",
+    "inputs": {
+      "clothing_tags": {
+        "name": "Clothing Tags",
+        "tooltip": "Filled by the clothing selector and editable by hand."
+      },
+      "extra_text": {
+        "name": "Extra Text",
+        "tooltip": "Text appended after the selected tags."
+      },
+      "opt_prompt": {
+        "name": "Upstream Prompt",
+        "tooltip": "Optional text placed before the selected tags, for example the output of another selector."
+      }
+    },
+    "outputs": {
+      "0": { "name": "text" }
+    }
+  },
+  "AnimaBackgroundSelector": {
+    "display_name": "Anima Background Selector",
+    "description": "Pick background tags visually and output them after the optional upstream text, followed by the extra text. Chain several selectors through opt_prompt.",
+    "inputs": {
+      "background_tags": {
+        "name": "Background Tags",
+        "tooltip": "Filled by the background selector and editable by hand."
+      },
+      "extra_text": {
+        "name": "Extra Text",
+        "tooltip": "Text appended after the selected tags."
+      },
+      "opt_prompt": {
+        "name": "Upstream Prompt",
+        "tooltip": "Optional text placed before the selected tags, for example the output of another selector."
+      }
+    },
+    "outputs": {
+      "0": { "name": "text" }
+    }
+  },
+  "AnimaPoseSelector": {
+    "display_name": "Anima Pose Selector",
+    "description": "Pick pose tags visually and output them after the optional upstream text, followed by the extra text. Chain several selectors through opt_prompt.",
+    "inputs": {
+      "pose_tags": {
+        "name": "Pose Tags",
+        "tooltip": "Filled by the pose selector and editable by hand."
+      },
+      "extra_text": {
+        "name": "Extra Text",
+        "tooltip": "Text appended after the selected tags."
+      },
+      "opt_prompt": {
+        "name": "Upstream Prompt",
+        "tooltip": "Optional text placed before the selected tags, for example the output of another selector."
+      }
+    },
+    "outputs": {
+      "0": { "name": "text" }
+    }
+  },
   "AnimaPromptPlus": {
     "display_name": "Anima Prompt",
     "description": "Build a complete prompt from editable quality, artist, character, clothing, pose, background, and extra prompt sections, filled through one prompt selector that switches between the tag sections.",

@@ -1,15 +1,7 @@
 import { t } from "./i18n.js";
 
 export const SELECTOR_RANDOM_PROPERTY = "anima_selector_random";
-export const ANIMA_PROMPT_PLUS_NODE_NAMES = new Set([
-    "AnimaPromptPlus",
-    "AnimaPromptPlusClipEncode",
-]);
 const PROMPT_SELECTOR_WIDGET = "anima_prompt_selector";
-
-export function isAnimaPromptPlusNode(nodeName) {
-    return ANIMA_PROMPT_PLUS_NODE_NAMES.has(nodeName);
-}
 
 function getRandomState(node) {
     node.properties = node.properties || {};
@@ -44,23 +36,8 @@ function refreshNode(node) {
     window?.app?.graph?.setDirtyCanvas?.(true, true);
 }
 
-export function refreshPromptSelectorWidget(node) {
+function refreshPromptSelectorWidget(node) {
     getWidget(node, PROMPT_SELECTOR_WIDGET)?.__animaSelectorRefresh?.();
-}
-
-// A tag section is shown only while it holds text, is randomized on run, or is driven by a link.
-function updateTagWidgetVisibility(node, selectors) {
-    let changed = false;
-    for (const selector of selectors) {
-        const widget = getWidget(node, selector.widgetName);
-        if (!widget) continue;
-        const linked = node.inputs?.some(input => input.widget?.name === selector.widgetName && input.link != null);
-        const hidden = !String(widget.value ?? "").trim() && !isRandomEnabled(node, selector.kind) && !linked;
-        if (widget.hidden === hidden) continue;
-        widget.hidden = hidden;
-        changed = true;
-    }
-    if (changed) node.setSize([node.size[0], node.computeSize()[1]]);
 }
 
 function getWidget(node, name) {
@@ -84,7 +61,6 @@ export function applySelectorWidgetValues(node, values) {
     for (const [name, value] of Object.entries(values)) {
         setWidgetValue(node, name, value);
     }
-    refreshPromptSelectorWidget(node);
     refreshNode(node);
 }
 
@@ -168,8 +144,8 @@ function styleRandomToggle(button, enabled) {
     `;
 }
 
-// One button opens the prompt selector; the row below toggles which sections are randomized on run.
-export function addPromptSelectorWidget(node, selectors, onOpen) {
+// One button opens the selector popup; the row below toggles which sections are randomized on run.
+export function addPromptSelectorWidget(node, label, selectors, onOpen) {
     const container = document.createElement("div");
     container.style.cssText = `
         display: flex;
@@ -183,7 +159,7 @@ export function addPromptSelectorWidget(node, selectors, onOpen) {
 
     const openButton = document.createElement("button");
     openButton.type = "button";
-    openButton.textContent = t("Open Prompt Selector");
+    openButton.textContent = label;
     openButton.style.cssText = `
         ${baseButtonStyle()}
         width: 100%;
@@ -222,15 +198,13 @@ export function addPromptSelectorWidget(node, selectors, onOpen) {
         button.addEventListener("click", event => {
             stopNodeDrag(event);
             setRandomEnabled(node, selector.kind, !isRandomEnabled(node, selector.kind));
-            refresh();
+            styleRandomToggle(button, isRandomEnabled(node, selector.kind));
         });
         randomRow.appendChild(button);
         return { kind: selector.kind, button };
     });
-    const refresh = () => {
-        toggles.forEach(({ kind, button }) => styleRandomToggle(button, isRandomEnabled(node, kind)));
-        updateTagWidgetVisibility(node, selectors);
-    };
+    const refresh = () => toggles.forEach(({ kind, button }) => styleRandomToggle(button, isRandomEnabled(node, kind)));
+    refresh();
 
     container.append(openButton, randomRow);
     const widget = node.addDOMWidget(PROMPT_SELECTOR_WIDGET, "div", container, {
@@ -243,5 +217,4 @@ export function addPromptSelectorWidget(node, selectors, onOpen) {
     widget.serialize = false;
     widget.computeSize = width => [width, 60];
     widget.computedHeight = 60;
-    refresh();
 }

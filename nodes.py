@@ -185,6 +185,54 @@ class AnimaPromptPlusClipEncode(AnimaPromptPlus):
             "result": (conditioning, resolved_text),
         }
 
+
+class AnimaTagSelector(AnimaPromptPlus):
+    """One tag section of Anima Prompt as its own node; opt_prompt chains selectors."""
+    SECTION = None
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                f"{cls.SECTION}_tags": ("STRING", {"multiline": True, "default": ""}),
+                "extra_text": ("STRING", {"multiline": True, "default": ""}),
+            },
+            "optional": {
+                "opt_prompt": ("STRING", {"forceInput": True}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("text",)
+    FUNCTION = "select_tags"
+    CATEGORY = "AnimaArt"
+
+    def select_tags(self, extra_text, opt_prompt="", **section_tags):
+        sections = dict.fromkeys(("artist_tags", "character_tags", "clothing_tags", "pose_tags", "background_tags"), "")
+        sections.update(section_tags)
+        text = self._compose_prompt_text(quality_prompt=opt_prompt, extra_prompt=extra_text, **sections)
+        return _anima_selector_tags_result(section_tags, text)
+
+
+class AnimaArtistSelector(AnimaTagSelector):
+    SECTION = "artist"
+
+
+class AnimaCharacterSelector(AnimaTagSelector):
+    SECTION = "character"
+
+
+class AnimaClothingSelector(AnimaTagSelector):
+    SECTION = "clothing"
+
+
+class AnimaBackgroundSelector(AnimaTagSelector):
+    SECTION = "background"
+
+
+class AnimaPoseSelector(AnimaTagSelector):
+    SECTION = "pose"
+
 class AnimaPromptComposer:
     SELECTION_PROPERTY = "anima_prompt_composer_selection"
 
@@ -884,6 +932,11 @@ class AnimaPromptComposer:
 from .lora_manager.nodes import AnimaMultiLoraLoader
 
 NODE_CLASS_MAPPINGS = {
+    "AnimaArtistSelector": AnimaArtistSelector,
+    "AnimaCharacterSelector": AnimaCharacterSelector,
+    "AnimaClothingSelector": AnimaClothingSelector,
+    "AnimaBackgroundSelector": AnimaBackgroundSelector,
+    "AnimaPoseSelector": AnimaPoseSelector,
     "AnimaPromptPlus": AnimaPromptPlus,
     "AnimaPromptPlusClipEncode": AnimaPromptPlusClipEncode,
     "AnimaPromptComposer": AnimaPromptComposer,
@@ -891,6 +944,11 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "AnimaArtistSelector": "Anima Artist Selector",
+    "AnimaCharacterSelector": "Anima Character Selector",
+    "AnimaClothingSelector": "Anima Clothing Selector",
+    "AnimaBackgroundSelector": "Anima Background Selector",
+    "AnimaPoseSelector": "Anima Pose Selector",
     "AnimaPromptPlus": "Anima Prompt",
     "AnimaPromptPlusClipEncode": "Anima Prompt Plus",
     "AnimaPromptComposer": "Anima Prompt Random Draw",
@@ -913,6 +971,11 @@ import urllib.request
 SELECTOR_RANDOM_PROPERTY = "anima_selector_random"
 
 SELECTOR_RANDOM_INPUTS = {
+    "AnimaArtistSelector": {"artist": "artist_tags"},
+    "AnimaCharacterSelector": {"character": "character_tags"},
+    "AnimaClothingSelector": {"clothing": "clothing_tags"},
+    "AnimaBackgroundSelector": {"background": "background_tags"},
+    "AnimaPoseSelector": {"pose": "pose_tags"},
     "AnimaPromptPlus": {
         "artist": "artist_tags",
         "character": "character_tags",
@@ -930,6 +993,11 @@ SELECTOR_RANDOM_INPUTS = {
 }
 
 SELECTOR_WIDGET_ORDERS = {
+    "AnimaArtistSelector": ["artist_tags", "extra_text"],
+    "AnimaCharacterSelector": ["character_tags", "extra_text"],
+    "AnimaClothingSelector": ["clothing_tags", "extra_text"],
+    "AnimaBackgroundSelector": ["background_tags", "extra_text"],
+    "AnimaPoseSelector": ["pose_tags", "extra_text"],
     "AnimaPromptPlus": [
         "quality_prompt",
         "artist_tags",

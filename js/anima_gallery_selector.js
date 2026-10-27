@@ -158,16 +158,16 @@ function initialOf(text) {
 /**
  * Opens the popup for a prompt node with one tab per selector. Selections are kept
  * while switching tabs, and applying writes every selector whose selection changed
- * to its own widget, then calls onApply.
+ * to its own widget.
  */
-export async function openPromptSelector(node, title, selectors, onApply) {
+export async function openPromptSelector(node, title, selectors) {
     const saved = localStorage.getItem(ACTIVE_SELECTOR_STORAGE_KEY);
     const selector = selectors.find(entry => entry.kind === saved && entry.ready()) || selectors.find(entry => entry.ready());
     if (!selector) {
         alert(t(selectors[0].loading));
         return;
     }
-    const session = { node, title, selectors, onApply, pending: new Map(), returnFocus: document.activeElement };
+    const session = { node, title, selectors, pending: new Map(), returnFocus: document.activeElement };
     // Every tab starts from what its widget already holds, so the tab badges count existing selections before a tab is visited.
     const favorites = await fetchFavorites();
     selectors.filter(entry => entry.ready()).forEach(entry => {
@@ -860,7 +860,6 @@ async function openSelector(selector, session) {
             await Promise.all(loading.map(entry => entry.config.prepareApply(entry.items)));
         }
         changed.forEach(entry => writeWidget(entry.widget, entry.config.buildOutput(entry.items, entry.mode)));
-        session.onApply();
         session.node.triggerSlot?.(0);
         close();
     }

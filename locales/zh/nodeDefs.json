@@ -1,4 +1,109 @@
 {
+  "AnimaArtistSelector": {
+    "display_name": "Anima 画师选择器",
+    "description": "可视化选择画师 Tags，输出顺序为「上游文本 → 所选 Tags → 额外文本」，可通过上游输入把多个选择器串起来。",
+    "inputs": {
+      "artist_tags": {
+        "name": "画师 Tags",
+        "tooltip": "由画师选择器填充，也可以手动修改。画师会统一整理为 @画师名 格式。"
+      },
+      "extra_text": {
+        "name": "额外文本",
+        "tooltip": "追加在所选 Tags 之后的文本。"
+      },
+      "opt_prompt": {
+        "name": "上游提示词",
+        "tooltip": "可选，放在所选 Tags 之前的文本，例如另一个选择器的输出。"
+      }
+    },
+    "outputs": {
+      "0": { "name": "文本" }
+    }
+  },
+  "AnimaCharacterSelector": {
+    "display_name": "Anima 角色选择器",
+    "description": "可视化选择角色 Tags，输出顺序为「上游文本 → 所选 Tags → 额外文本」，可通过上游输入把多个选择器串起来。",
+    "inputs": {
+      "character_tags": {
+        "name": "角色 Tags",
+        "tooltip": "由角色选择器填充，也可以手动修改。"
+      },
+      "extra_text": {
+        "name": "额外文本",
+        "tooltip": "追加在所选 Tags 之后的文本。"
+      },
+      "opt_prompt": {
+        "name": "上游提示词",
+        "tooltip": "可选，放在所选 Tags 之前的文本，例如另一个选择器的输出。"
+      }
+    },
+    "outputs": {
+      "0": { "name": "文本" }
+    }
+  },
+  "AnimaClothingSelector": {
+    "display_name": "Anima 服装选择器",
+    "description": "可视化选择服装 Tags，输出顺序为「上游文本 → 所选 Tags → 额外文本」，可通过上游输入把多个选择器串起来。",
+    "inputs": {
+      "clothing_tags": {
+        "name": "服装 Tags",
+        "tooltip": "由服装选择器填充，也可以手动修改。"
+      },
+      "extra_text": {
+        "name": "额外文本",
+        "tooltip": "追加在所选 Tags 之后的文本。"
+      },
+      "opt_prompt": {
+        "name": "上游提示词",
+        "tooltip": "可选，放在所选 Tags 之前的文本，例如另一个选择器的输出。"
+      }
+    },
+    "outputs": {
+      "0": { "name": "文本" }
+    }
+  },
+  "AnimaBackgroundSelector": {
+    "display_name": "Anima 背景选择器",
+    "description": "可视化选择背景 Tags，输出顺序为「上游文本 → 所选 Tags → 额外文本」，可通过上游输入把多个选择器串起来。",
+    "inputs": {
+      "background_tags": {
+        "name": "背景 Tags",
+        "tooltip": "由背景选择器填充，也可以手动修改。"
+      },
+      "extra_text": {
+        "name": "额外文本",
+        "tooltip": "追加在所选 Tags 之后的文本。"
+      },
+      "opt_prompt": {
+        "name": "上游提示词",
+        "tooltip": "可选，放在所选 Tags 之前的文本，例如另一个选择器的输出。"
+      }
+    },
+    "outputs": {
+      "0": { "name": "文本" }
+    }
+  },
+  "AnimaPoseSelector": {
+    "display_name": "Anima 姿势选择器",
+    "description": "可视化选择姿势 Tags，输出顺序为「上游文本 → 所选 Tags → 额外文本」，可通过上游输入把多个选择器串起来。",
+    "inputs": {
+      "pose_tags": {
+        "name": "姿势 Tags",
+        "tooltip": "由姿势选择器填充，也可以手动修改。"
+      },
+      "extra_text": {
+        "name": "额外文本",
+        "tooltip": "追加在所选 Tags 之后的文本。"
+      },
+      "opt_prompt": {
+        "name": "上游提示词",
+        "tooltip": "可选，放在所选 Tags 之前的文本，例如另一个选择器的输出。"
+      }
+    },
+    "outputs": {
+      "0": { "name": "文本" }
+    }
+  },
   "AnimaPromptPlus": {
     "display_name": "Anima 提示词",
     "description": "将质量提示词、画师、角色、服装、姿势、背景和额外提示词分区编辑并统一拼接输出，可在同一个提示词选择器中切换各 Tag 分区并填充。",

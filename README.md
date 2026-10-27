@@ -150,18 +150,24 @@ The Anima Multi LoRA Loader panel and its LoRA Manager popup are ported from Civ
 
 ## 📖 节点参数说明 (Nodes Reference)
 
-本套件共提供 4 个节点，放置于 `AnimaArt` 分类目录下：
+本套件共提供 9 个节点，放置于 `AnimaArt` 分类目录下：
 
-### 1. 🧩 Anima Prompt & Anima Prompt Plus (提示词整合)
-*   `quality_prompt` / `artist_tags` / `character_tags` / `clothing_tags` / `pose_tags` / `background_tags` / `extra_prompt` (String): 各分区提示词。节点默认只显示质量提示词与额外拼接提示词；在「打开提示词选择器」中应用某个分类后，对应的 Tag 输入框才会出现并显示所选内容，可继续手动修改（清空后在下次应用或重新加载时隐藏）。开启随机或接入连线的分类也会显示。画师会统一整理为 `@画师名` 格式。
+### 1. 🎨 Anima Artist / Character / Clothing / Background / Pose Selector (单类选择器)
+*   `{分类}_tags` (String): 由该分类的选择器填入，也可以手动修改；画师会统一整理为 `@画师名` 格式。
+*   `extra_text` (String): 追加在所选 Tags 之后的文本。
+*   `opt_prompt` (String, 可选输入): 放在所选 Tags 之前的上游文本，可把多个选择器串起来。
+*   输出顺序为 **上游文本 → 所选 Tags → 额外文本**；节点上的「随机」开关可在每次运行时自动随机一项。
+
+### 2. 🧩 Anima Prompt & Anima Prompt Plus (提示词整合)
+*   `quality_prompt` / `artist_tags` / `character_tags` / `clothing_tags` / `pose_tags` / `background_tags` / `extra_prompt` (String): 各分区提示词，Tag 分区可通过「打开提示词选择器」填入，也可以手动修改。画师会统一整理为 `@画师名` 格式。
 *   `separator` (String, 默认 `, `): 各分区之间的分隔符。
 *   **随机开关：** 节点底部「随机」一行可单独开启画师、角色、服装、姿势、背景的运行时随机。
 *   **Anima Prompt** 输出 `STRING`；**Anima Prompt Plus** 额外需要 `clip` 输入，输出 `CONDITIONING` 与拼接后的文本。
 
 > [!NOTE]
-> 旧版的单类选择器节点（Artist / Character / Clothing / Background / Pose Tag Selector 及其 `+` 版本）已移除，旧工作流中的这些节点需替换为 Anima Prompt 或 Anima Prompt Plus。
+> 旧版的单类选择器节点（Artist / Character / Clothing / Background / Pose Tag Selector 及其 `+` 版本）已由上面的 5 个单类选择器取代，旧工作流中的这些节点需要手动替换。
 
-### 2. 🎲 Anima Prompt Composer (随机提示词整合器)
+### 3. 🎲 Anima Prompt Composer (随机提示词整合器)
 选项按 **种子 → 画师 → 角色 → 服装 → 背景 → 姿势** 分组排列：
 *   `seed` (Int): `-1` 表示每次运行自动随机；固定数值可获得可复现结果。
 *   `enable_artist` (Boolean) / `artist_count` (Int): 是否输出画师，以及随机画师数量。角色、服装、背景与姿势启用时固定各随机 1 个。
@@ -183,7 +189,7 @@ The Anima Multi LoRA Loader panel and its LoRA Manager popup are ported from Civ
 > [!NOTE]
 > 旧工作流打开时会按名称自动迁移到新的选项顺序；相同种子与选项抽出的提示词与旧版完全一致。旧的 API 工作流（含 `preview_collapsed` / `resolved_prompt` 字段）仍可直接运行，这两个字段会被忽略。
 
-### 3. 🧩 Anima Multi LoRA Loader (多 LoRA 加载器)
+### 4. 🧩 Anima Multi LoRA Loader (多 LoRA 加载器)
 *   `model`: ComfyUI 标准模型输入。
 *   `lora_list_json` (String): LoRA 管理器维护的 LoRA 列表，包含文件名、所在目录、启用状态与模型强度。
 *   节点面板可调整强度、启用或移除 LoRA；「LoRA 管理器」弹窗提供 Anima LoRA 发现与下载、本地 LoRA、收藏夹、已应用排序与下载任务。
@@ -203,7 +209,7 @@ Anima-Tools/
 │   ├── anima_artist_selector.js     # 画师选择器数据适配（图片源、排序、@ 输出格式）
 │   ├── anima_character_selector.js  # 角色选择器数据适配（属性筛选、官方触发词与 Tags）
 │   ├── anima_tag_selectors.js       # 服装、背景、姿势选择器数据适配（分类、特征、中英双语）
-│   ├── anima_prompt_plus.js         # Anima Prompt 节点：提示词选择器按钮与随机开关
+│   ├── anima_prompt_plus.js         # Anima Prompt 与单类选择器节点：选择器按钮与随机开关
 │   ├── anima_prompt_composer.js     # 画师、角色、服装随机整合节点预览逻辑
 │   ├── anima_lora_node.js           # Multi LoRA Loader 节点面板与 LoRA 管理器弹窗
 │   ├── lora_manager/                # LoRA 管理器共享模块（接口、卡片、详情、下载、收藏、样式、主题取色）
