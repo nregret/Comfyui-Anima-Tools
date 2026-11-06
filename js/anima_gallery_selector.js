@@ -15,6 +15,7 @@ import {
     injectSelectorStyles,
     openFormDialog,
     selectorIcon,
+    normalizePromptToken,
     showToast,
     splitPromptTokens,
 } from "./anima_selector_ui.js";
@@ -156,27 +157,93 @@ function initialOf(text) {
 }
 
 /**
- * Opens the popup for a prompt node with one tab per selector. Selections are kept
- * while switching tabs, and applying writes every selector whose selection changed
- * to its own widget.
+ * Opens the popup for a node with one tab per selector. Selections are kept while
+ * switching tabs, and applying writes every selector whose selection changed to its
+ * own widget.
  */
-export async function openPromptSelector(node, title, selectors) {
+export function openPromptSelector(node, title, selectors) {
+    const widgetOf = selector => node.widgets.find(item => item.name === selector.widgetName);
+    return startSession({
+        title,
+        selectors,
+        createConfig: selector => selector.createConfig(widgetOf(selector)),
+        initialItems: (selector, config, customs) => config.initialSelection(customs),
+        commit: changed => {
+            changed.forEach(entry => writeWidget(widgetOf(entry.selector), entry.config.buildOutput(entry.items, entry.mode)));
+            node.triggerSlot?.(0);
+        },
+    });
+}
+
+/**
+ * Opens the popup for one prompt text box: every tab writes into the same box.
+ * box.picks remembers, per tab, the selected keys and the text that was written, so
+ * reopening restores the selection and applying replaces only that tab's tags while
+ * typed text and other tabs' tags stay in place.
+ */
+export function openBoxSelector(title, selectors, box, onApply) {
+    return startSession({
+        title,
+        selectors,
+        createConfig: selector => selector.createConfig({ value: box.text }),
+        initialItems: (selector, config, customs) => {
+            const keys = box.picks?.[selector.kind]?.keys || [];
+            if (!keys.length) return [];
+            const wanted = new Set(keys);
+            const found = new Map();
+            [...customs, ...config.data].forEach(item => {
+                const key = config.selectionKey(item);
+                if (wanted.has(key)) found.set(key, item);
+            });
+            return keys.map(key => found.get(key)).filter(Boolean);
+        },
+        commit: changed => {
+            let tokens = splitPromptTokens(box.text);
+            const picks = { ...box.picks };
+            changed.forEach(entry => {
+                const output = entry.config.buildOutput(entry.items, entry.mode);
+                tokens = replacePromptTokens(tokens, splitPromptTokens(picks[entry.selector.kind]?.text), splitPromptTokens(output));
+                if (entry.items.length) picks[entry.selector.kind] = { keys: entry.items.map(item => entry.config.selectionKey(item)), text: output };
+                else delete picks[entry.selector.kind];
+            });
+            onApply({ ...box, text: tokens.length ? `${tokens.join(", ")}, ` : "", picks });
+        },
+    });
+}
+
+// Swaps the old tokens of one tab for its new ones at the position of the first old token, skipping duplicates.
+export function replacePromptTokens(tokens, oldTokens, newTokens) {
+    const old = new Set(oldTokens.map(normalizePromptToken));
+    const first = tokens.findIndex(token => old.has(normalizePromptToken(token)));
+    const kept = tokens.filter(token => !old.has(normalizePromptToken(token)));
+    const present = new Set(kept.map(normalizePromptToken));
+    const added = newTokens.filter(token => {
+        const key = normalizePromptToken(token);
+        if (present.has(key)) return false;
+        present.add(key);
+        return true;
+    });
+    const at = first < 0 ? kept.length : tokens.slice(0, first).filter(token => !old.has(normalizePromptToken(token))).length;
+    kept.splice(at, 0, ...added);
+    return kept;
+}
+
+async function startSession({ title, selectors, createConfig, initialItems, commit }) {
     const saved = localStorage.getItem(ACTIVE_SELECTOR_STORAGE_KEY);
     const selector = selectors.find(entry => entry.kind === saved && entry.ready()) || selectors.find(entry => entry.ready());
     if (!selector) {
         alert(t(selectors[0].loading));
         return;
     }
-    const session = { node, title, selectors, pending: new Map(), returnFocus: document.activeElement };
-    // Every tab starts from what its widget already holds, so the tab badges count existing selections before a tab is visited.
+    const session = { title, selectors, createConfig, initialItems, commit, pending: new Map(), returnFocus: document.activeElement };
+    // Every tab starts from its existing selection, so the tab badges count it before a tab is visited.
     const favorites = await fetchFavorites();
     selectors.filter(entry => entry.ready()).forEach(entry => {
-        const widget = node.widgets.find(item => item.name === entry.widgetName);
-        const config = entry.createConfig(widget);
+        const config = createConfig(entry);
         const customs = createFavoriteStore(entry.kind, favorites[entry.kind] || {}, config.favoriteKey).customs();
-        const selection = new Map(config.initialSelection(customs).map(item => [config.selectionKey(item), item]));
+        const selection = new Map(initialItems(entry, config, customs).map(item => [config.selectionKey(item), item]));
         const keys = [...selection.keys()].join("\n");
-        session.pending.set(entry.kind, { config, widget, items: [...selection.values()], keys, initialKeys: keys, mode: primaryMode(config) });
+        session.pending.set(entry.kind, { selector: entry, config, items: [...selection.values()], keys, initialKeys: keys, mode: primaryMode(config) });
     });
     openSelector(selector, session);
 }
@@ -189,20 +256,21 @@ async function openSelector(selector, session) {
     if (token !== openToken) return;
     localStorage.setItem(ACTIVE_SELECTOR_STORAGE_KEY, kind);
     const pending = session.pending.get(kind);
-    const widget = session.node.widgets.find(entry => entry.name === selector.widgetName);
-    const config = pending ? pending.config : selector.createConfig(widget);
+    const config = pending ? pending.config : session.createConfig(selector);
     const { data, labels, storage, pageSize } = config;
     const applyActions = config.applyActions || [{ label: t("Confirm & Apply"), primary: true }];
     const defaultMode = primaryMode(config);
     const store = createFavoriteStore(kind, favorites, config.favoriteKey);
     const selection = new Map();
-    (pending ? pending.items : config.initialSelection(store.customs())).forEach(item => selection.set(config.selectionKey(item), item));
+    (pending ? pending.items : session.initialItems(selector, config, store.customs())).forEach(item => selection.set(config.selectionKey(item), item));
     const selectionKeys = () => [...selection.keys()].join("\n");
     const initialKeys = pending ? pending.initialKeys : selectionKeys();
 
     const saved = config.loadState();
+    // A remembered favorites group that has since become empty would open on a blank page; start on All instead.
+    const savedGroup = store.groups().some(group => group.id === saved.collection) && store.count(saved.collection) > 0;
     const state = {
-        collection: saved.collection === "all" || store.groups().some(group => group.id === saved.collection) ? saved.collection : "all",
+        collection: savedGroup ? saved.collection : "all",
         lastGroup: DEFAULT_GROUP,
         showSelected: false,
         filters: {},
@@ -213,8 +281,19 @@ async function openSelector(selector, session) {
         items: [],
         pageItems: [],
         focus: null,
+        imageIndex: new Map(),
+        defaultImage: Number(localStorage.getItem(`anima-selector-sample-${kind}`)) || 0,
         sections: [],
+        detailActions: [],
+        // { def, mode: "add-root" | "add-child" | "rename" | "delete", value, label } while a tree row is edited inline.
+        treeEdit: null,
+        // { item, preset } while config.editor fills the details panel; editor holds its mounted element and handle.
+        editing: null,
+        editor: null,
         filtersOpen: window.matchMedia("(min-width: 1180px)").matches,
+        expanded: new Set(),
+        collapsedFilters: new Set(),
+        optionQueries: {},
     };
     if (!config.sortOptions.some(option => option.value === state.sort)) state.sort = config.defaultSort;
     if (config.displayModes && !config.displayModes.options.some(option => option.value === state.displayMode)) {
@@ -226,14 +305,8 @@ async function openSelector(selector, session) {
         get displayMode() { return state.displayMode; },
         isFavorite: item => store.isFavorite(item),
     };
-    let filterDefs = config.filters(ctx);
-    filterDefs.forEach(def => {
-        const valid = new Set(def.options.map(option => option.value));
-        const value = saved.filters?.[def.id];
-        state.filters[def.id] = def.multiple
-            ? (Array.isArray(value) ? value.filter(entry => valid.has(entry)) : [])
-            : (valid.has(value) ? value : null);
-    });
+    let filterDefs = [];
+    loadFilterDefs(saved.filters);
 
     const overlay = document.createElement("div");
     overlay.className = "anima-sel-overlay";
@@ -244,6 +317,10 @@ async function openSelector(selector, session) {
                 <nav class="anima-sel-kinds" aria-label="${escapeHtml(session.title)}"></nav>
                 <div class="anima-sel-topbar-actions">
                     <button class="anima-sel-filter-toggle" type="button" data-action="toggle-filters" aria-label="${escapeHtml(t("Adjust Filters"))}">${selectorIcon("panel")}<span>${escapeHtml(t("Adjust Filters"))}</span></button>
+                    <div class="anima-sel-links">
+                        <a href="${PROMO_LINKS.afdian}" target="_blank" rel="noopener noreferrer" class="is-afdian">💗 ${escapeHtml(t("Support on Afdian"))}</a>
+                        <button type="button" data-action="copy-qq" title="${escapeHtml(t("Click to copy the group number"))}">${escapeHtml(t("QQ Group"))} ${PROMO_LINKS.qqGroup}</button>
+                    </div>
                     <button class="anima-sel-close" type="button" data-action="close" aria-label="${escapeHtml(t("Close"))}" title="${escapeHtml(t("Close"))} (Esc)">${selectorIcon("close")}</button>
                 </div>
             </header>
@@ -266,10 +343,12 @@ async function openSelector(selector, session) {
                             <div class="anima-sel-chips" hidden></div>
                         </header>
                         <div class="anima-sel-split">
-                            <div class="anima-sel-results"></div>
+                            <div class="anima-sel-gallery">
+                                <div class="anima-sel-results"></div>
+                                <div class="anima-sel-pager"></div>
+                            </div>
                             <aside class="anima-sel-detail" aria-label="${escapeHtml(t("Details"))}"></aside>
                         </div>
-                        <div class="anima-sel-pager"></div>
                     </main>
                 </div>
             </div>
@@ -284,6 +363,7 @@ async function openSelector(selector, session) {
                 </div>
                 <div class="anima-sel-footer-actions">
                     <button class="anima-sel-button" type="button" data-action="close">${escapeHtml(t("Cancel"))}</button>
+                    <button class="anima-sel-button" type="button" data-action="clear-selected" ${selection.size ? "" : "disabled"}>${selectorIcon("trash")}${escapeHtml(t("Clear Selected"))}</button>
                     ${applyActions.map((action, index) => `<button class="anima-sel-button ${action.primary ? "is-primary" : ""}" type="button" data-action="apply" data-apply="${index}">${escapeHtml(action.label)}</button>`).join("")}
                 </div>
             </footer>
@@ -326,6 +406,53 @@ async function openSelector(selector, session) {
     const totalPages = () => Math.max(1, Math.ceil(state.items.length / pageSize));
     const hasActiveFilters = () => filterDefs.some(def => def.multiple ? state.filters[def.id].length : state.filters[def.id]);
     const keyOf = item => config.selectionKey(item);
+
+    // Builds the filters from config and keeps only the given values that still exist as options.
+    function loadFilterDefs(values) {
+        filterDefs = config.filters(ctx);
+        filterDefs.forEach(def => {
+            const valid = new Set(def.options.map(option => option.value));
+            const value = values?.[def.id];
+            state.filters[def.id] = def.multiple
+                ? (Array.isArray(value) ? value.filter(entry => valid.has(entry)) : [])
+                : (valid.has(value) ? value : null);
+            expandToSelection(def);
+        });
+    }
+
+    // Adapters that edit their own data in place (My Tags) call this through tools.refresh.
+    function refreshData() {
+        loadFilterDefs(state.filters);
+        const kept = new Set(data);
+        selection.forEach((item, key) => {
+            if (!item.isCustom && !kept.has(item)) selection.delete(key);
+        });
+        if (state.focus && !state.focus.isCustom && !kept.has(state.focus)) state.focus = null;
+        renderTabs();
+        renderNav();
+        refreshItems();
+        renderDetail();
+    }
+
+    const tools = {
+        host: shell,
+        toast,
+        refresh: refreshData,
+        filters: () => state.filters,
+        edit: (item = null, preset = []) => {
+            state.editing = { item, preset };
+            state.focus = item;
+            syncFocusMarks();
+            splitEl.classList.add("is-detail-open");
+            renderDetail();
+        },
+        closeEditor: (item = null) => {
+            state.editing = null;
+            state.focus = item;
+            syncFocusMarks();
+            renderDetail();
+        },
+    };
 
     function filterValues(def) {
         const value = state.filters[def.id];
@@ -421,64 +548,192 @@ async function openSelector(selector, session) {
             </section>`;
         navEl.innerHTML = `
             <div class="anima-sel-nav-heading"><h2>${escapeHtml(t("Adjust Filters"))}</h2>${filterDefs.length ? `<button class="anima-sel-reset" type="button" data-action="reset-filters" ${hasActiveFilters() ? "" : "disabled"}>${escapeHtml(t("Reset Filters"))}</button>` : ""}</div>
+            ${(config.navActions || []).map((action, index) => `<button class="anima-sel-button anima-sel-nav-action ${action.primary ? "is-primary" : ""}" type="button" data-action="nav-tool" data-index="${index}">${selectorIcon(action.icon)}${escapeHtml(action.label)}</button>`).join("")}
             ${groupsHtml}
-            ${filterDefs.map(def => `
-                <section class="anima-sel-nav-group">
-                    <div class="anima-sel-nav-title"><span>${escapeHtml(def.label)}</span></div>
-                    <div class="anima-sel-combo" data-filter="${escapeHtml(def.id)}">
-                        <button class="anima-sel-combo-control" type="button" data-action="combo-toggle" aria-haspopup="listbox" aria-expanded="false"><span class="anima-sel-combo-value"></span>${selectorIcon("chevron")}</button>
-                        <button class="anima-sel-combo-clear" type="button" data-action="filter-clear" aria-label="${escapeHtml(t("Clear"))}">${selectorIcon("close")}</button>
-                        <div class="anima-sel-combo-popover">
-                            ${def.options.length > 8 ? `<div class="anima-sel-combo-search">${selectorIcon("search")}<input data-combo-search placeholder="${escapeHtml(t("Search options..."))}" aria-label="${escapeHtml(t("Search options..."))}" autocomplete="off"></div>` : ""}
-                            <div class="anima-sel-combo-list" role="listbox" aria-multiselectable="${Boolean(def.multiple)}">
-                                ${def.options.map(option => `<button class="anima-sel-combo-option" type="button" role="option" data-action="filter-option" data-value="${escapeHtml(option.value)}"><span>${escapeHtml(option.label)}</span>${option.count === undefined ? "" : `<small>${option.count}</small>`}</button>`).join("")}
-                                <div class="anima-sel-combo-empty" data-combo-empty hidden>${escapeHtml(t("No matching options"))}</div>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-            `).join("")}
+            ${filterDefs.map(filterSectionHtml).join("")}
         `;
-        navEl.querySelectorAll(".anima-sel-combo").forEach(syncCombo);
     }
 
-    function syncCombo(combo) {
-        const def = filterDefs.find(entry => entry.id === combo.dataset.filter);
+    function expandKey(def, value) {
+        return `${def.id}\u001f${value}`;
+    }
+
+    // Tree filters list parents before children; each option names its parent value.
+    function expandToSelection(def) {
+        if (!def.tree) return;
+        const byValue = new Map(def.options.map(option => [option.value, option]));
+        filterValues(def).forEach(value => {
+            for (let parent = byValue.get(value)?.parent; parent; parent = byValue.get(parent)?.parent) state.expanded.add(expandKey(def, parent));
+        });
+    }
+
+    function optionRowsHtml(def) {
         const values = filterValues(def);
-        const text = values.length > 1 ? t("{count} selected", { count: values.length }) : (values.length ? optionLabel(def, values[0]) : t("Any"));
-        const valueEl = combo.querySelector(".anima-sel-combo-value");
-        valueEl.textContent = text;
-        valueEl.classList.toggle("placeholder", !values.length);
-        combo.querySelector(".anima-sel-combo-control").title = values.map(value => optionLabel(def, value)).join(", ");
-        combo.classList.toggle("has-value", values.length > 0);
-        combo.querySelector(".anima-sel-combo-clear").hidden = !values.length;
-        combo.querySelectorAll(".anima-sel-combo-option").forEach(option => {
-            const active = values.includes(option.dataset.value);
-            option.classList.toggle("active", active);
-            option.setAttribute("aria-selected", String(active));
+        const query = (state.optionQueries[def.id] || "").trim().toLowerCase();
+        const byValue = new Map(def.options.map(option => [option.value, option]));
+        const parents = new Set(def.options.map(option => option.parent).filter(Boolean));
+        const shown = option => {
+            if (query) return option.label.toLowerCase().includes(query);
+            for (let parent = option.parent; parent; parent = byValue.get(parent)?.parent) {
+                if (!state.expanded.has(expandKey(def, parent))) return false;
+            }
+            return true;
+        };
+        const id = escapeHtml(def.id);
+        const edit = state.treeEdit?.def === def.id ? state.treeEdit : null;
+        const inputRow = (depth, value) => `<div class="anima-sel-tree-edit" style="--depth: ${depth}"><input class="anima-sel-tree-input" data-tree-input value="${escapeHtml(value)}" placeholder="${escapeHtml(t("Category name, Enter to save"))}" maxlength="60" autocomplete="off"></div>`;
+        // Editable rows carry their tools as spans inside the option button, like the tree toggle.
+        const tool = (action, icon, label, value) => `<span class="${action === "tree-delete" ? "is-danger" : ""}" data-action="${action}" data-filter="${id}" data-value="${value}" title="${escapeHtml(label)}">${selectorIcon(icon)}</span>`;
+        const rows = def.options.filter(shown).flatMap(option => {
+            const active = values.includes(option.value);
+            const value = escapeHtml(option.value);
+            const depth = query ? 0 : option.depth || 0;
+            if (edit?.value === option.value && edit.mode === "rename") return [inputRow(depth, option.label)];
+            if (edit?.value === option.value && edit.mode === "delete") {
+                return [`<div class="anima-sel-tree-confirm" style="--depth: ${depth}"><span>${escapeHtml(t("Delete \"{name}\"?", { name: option.label }))}<small>${escapeHtml(def.edit.removeHint)}</small></span><span><button class="anima-sel-button is-danger" type="button" data-action="tree-confirm-delete">${escapeHtml(t("Delete"))}</button><button class="anima-sel-button" type="button" data-action="tree-cancel">${escapeHtml(t("Cancel"))}</button></span></div>`];
+            }
+            const open = state.expanded.has(expandKey(def, option.value));
+            const toggle = !def.tree ? ""
+                : parents.has(option.value) && !query ? `<span class="anima-sel-option-toggle ${open ? "open" : ""}" data-action="tree-toggle" data-filter="${id}" data-value="${value}">${selectorIcon("chevron")}</span>`
+                : `<span class="anima-sel-option-toggle"></span>`;
+            const tools = def.edit && option.editable ? `<span class="anima-sel-option-tools">
+                ${option.nestable ? tool("tree-add-child", "folder", t("New Subcategory"), value) : ""}
+                ${tool("tree-add-item", "plus", t("New Entry"), value)}
+                ${tool("tree-rename", "edit", t("Rename"), value)}
+                ${tool("tree-delete", "trash", t("Delete"), value)}
+            </span>` : "";
+            const row = `<button class="anima-sel-option ${active ? "active" : ""} ${def.multiple ? "is-check" : ""}" type="button" role="option" aria-selected="${active}" data-action="filter-option" data-filter="${id}" data-value="${value}" style="--depth: ${depth}" title="${escapeHtml([option.label, option.hint].filter(Boolean).join(" / "))}">${toggle}${def.multiple ? '<span class="anima-sel-option-check"></span>' : ""}<span class="anima-sel-option-label">${escapeHtml(option.label)}</span>${option.hint ? `<span class="anima-sel-option-hint">${escapeHtml(option.hint)}</span>` : ""}${tools}${option.count === undefined ? "" : `<small>${option.count}</small>`}</button>`;
+            return edit?.value === option.value && edit.mode === "add-child" ? [row, inputRow(depth + 1, "")] : [row];
         });
+        if (edit?.mode === "add-root") rows.push(inputRow(0, ""));
+        const all = def.tree && !query ? `<button class="anima-sel-option ${values.length ? "" : "active"}" type="button" data-action="filter-clear" data-filter="${id}"><span class="anima-sel-option-toggle"></span><span class="anima-sel-option-label">${escapeHtml(t("All"))}</span><small>${data.length}</small></button>` : "";
+        const empty = def.edit && !query ? "" : `<div class="anima-sel-option-empty">${escapeHtml(t("No matching options"))}</div>`;
+        return all + (rows.join("") || empty);
+    }
+
+    function startTreeEdit(target, mode) {
+        const def = filterDefs.find(entry => entry.id === target.dataset.filter);
+        const value = target.dataset.value ?? null;
+        state.collapsedFilters.delete(def.id);
+        if (mode === "add-child") state.expanded.add(expandKey(def, value));
+        state.treeEdit = { def: def.id, mode, value, label: def.options.find(option => option.value === value)?.label || "" };
+        refreshFilterSection(def);
+        const input = navEl.querySelector("[data-tree-input]");
+        input?.focus();
+        input?.select();
+    }
+
+    function endTreeEdit() {
+        const def = filterDefs.find(entry => entry.id === state.treeEdit?.def);
+        state.treeEdit = null;
+        if (def) refreshFilterSection(def);
+    }
+
+    // The def's edit callbacks save and report problems themselves; a falsy result keeps the row in edit mode.
+    async function commitTreeEdit(name) {
+        const edit = state.treeEdit;
+        if (!edit || edit.busy || edit.mode === "delete") return;
+        const def = filterDefs.find(entry => entry.id === edit.def);
+        name = name.trim();
+        if (!name || (edit.mode === "rename" && name === edit.label)) {
+            endTreeEdit();
+            return;
+        }
+        edit.busy = true;
+        const result = edit.mode === "add-root" ? await def.edit.addRoot(name, tools)
+            : edit.mode === "add-child" ? await def.edit.addChild(edit.value, name, tools)
+            : await def.edit.rename(edit.value, name, tools);
+        edit.busy = false;
+        if (state.treeEdit !== edit) return;
+        if (!result) {
+            navEl.querySelector("[data-tree-input]")?.focus();
+            return;
+        }
+        // rename returns the renamed option's new value, so an active filter or open branch on it follows.
+        if (edit.mode === "rename") {
+            if (state.filters[def.id] === edit.value) state.filters[def.id] = result;
+            if (state.expanded.has(expandKey(def, edit.value))) state.expanded.add(expandKey(def, result));
+        }
+        state.treeEdit = null;
+        refreshData();
+    }
+
+    async function commitTreeDelete() {
+        const edit = state.treeEdit;
+        const def = filterDefs.find(entry => entry.id === edit.def);
+        if (!await def.edit.remove(edit.value, tools)) return;
+        if (state.treeEdit === edit) state.treeEdit = null;
+        refreshData();
+    }
+
+    function filterSectionHtml(def) {
+        const id = escapeHtml(def.id);
+        const collapsed = state.collapsedFilters.has(def.id);
+        const searchable = def.options.length > 12;
+        return `
+            <section class="anima-sel-nav-group anima-sel-filter ${collapsed ? "is-collapsed" : ""}" data-filter="${id}">
+                <div class="anima-sel-nav-title">
+                    <button class="anima-sel-filter-head" type="button" data-action="filter-collapse" data-filter="${id}" aria-expanded="${!collapsed}">${selectorIcon("chevron")}<span>${escapeHtml(def.label)}</span></button>
+                    ${filterValues(def).length ? `<button class="anima-sel-filter-clear" type="button" data-action="filter-clear" data-filter="${id}">${escapeHtml(t("Clear"))}</button>` : ""}
+                    ${def.edit ? `<button class="anima-sel-nav-add" type="button" data-action="tree-add-root" data-filter="${id}" title="${escapeHtml(t("New Category"))}" aria-label="${escapeHtml(t("New Category"))}">${selectorIcon("plus")}</button>` : ""}
+                </div>
+                ${collapsed ? "" : `
+                    ${searchable ? `<label class="anima-sel-filter-search">${selectorIcon("search")}<input data-filter-search="${id}" value="${escapeHtml(state.optionQueries[def.id] || "")}" placeholder="${escapeHtml(t("Search options..."))}" aria-label="${escapeHtml(t("Search options..."))}" autocomplete="off"></label>` : ""}
+                    <div class="anima-sel-option-list ${searchable && !def.tree ? "is-scroll" : ""}" role="listbox" aria-label="${escapeHtml(def.label)}" aria-multiselectable="${Boolean(def.multiple)}">${optionRowsHtml(def)}</div>
+                `}
+            </section>`;
+    }
+
+    // Chevron rotation per toggle in a filter section: the section head and every tree parent.
+    function chevronTransforms(section) {
+        return new Map([...section.querySelectorAll('[data-action="filter-collapse"] svg, [data-action="tree-toggle"] svg')]
+            .map(svg => [svg.closest("[data-value]")?.dataset.value ?? "", svg]));
+    }
+
+    // Re-render one section in place, keeping the scroll position of its option list. With animate, the section
+    // height and the toggled chevron move from the old state: growing shows the new rows while the section opens,
+    // shrinking keeps the old rows visible until the section has closed.
+    function refreshFilterSection(def, animate = false) {
+        const selector = `.anima-sel-filter[data-filter="${CSS.escape(def.id)}"]`;
+        const section = navEl.querySelector(selector);
+        if (!section) return;
+        const scroll = section.querySelector(".anima-sel-option-list")?.scrollTop || 0;
+        const from = section.offsetHeight;
+        section.insertAdjacentHTML("afterend", filterSectionHtml(def));
+        const next = section.nextElementSibling;
+        const list = next.querySelector(".anima-sel-option-list");
+        if (list) list.scrollTop = scroll;
         navEl.querySelector('[data-action="reset-filters"]')?.toggleAttribute("disabled", !hasActiveFilters());
-    }
-
-    function setComboOpen(combo, open) {
-        combo.classList.toggle("open", open);
-        combo.querySelector(".anima-sel-combo-control").setAttribute("aria-expanded", String(open));
-        if (!open) return;
-        overlay.querySelectorAll(".anima-sel-combo.open").forEach(other => other !== combo && setComboOpen(other, false));
-        const search = combo.querySelector("[data-combo-search]");
-        (search || combo.querySelector(".anima-sel-combo-option.active") || combo.querySelector(".anima-sel-combo-option"))?.focus({ preventScroll: true });
-    }
-
-    function filterCombo(input) {
-        const query = input.value.trim().toLowerCase();
-        const combo = input.closest(".anima-sel-combo");
-        let visible = 0;
-        combo.querySelectorAll(".anima-sel-combo-option").forEach(option => {
-            const match = !query || option.textContent.toLowerCase().includes(query);
-            option.hidden = !match;
-            if (match) visible++;
+        if (!animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+            section.remove();
+            return;
+        }
+        const to = next.offsetHeight;
+        const timing = { duration: 220, easing: "cubic-bezier(.2, .8, .2, 1)" };
+        const oldChevrons = chevronTransforms(section);
+        const newChevrons = chevronTransforms(next);
+        const shrinking = to < from;
+        const shown = shrinking ? section : next;
+        oldChevrons.forEach((svg, key) => {
+            const target = newChevrons.get(key);
+            const before = getComputedStyle(svg).transform;
+            const after = target && getComputedStyle(target).transform;
+            if (after && before !== after) (shrinking ? svg : target).animate([{ transform: before }, { transform: after }], { ...timing, fill: "forwards" });
         });
-        combo.querySelector("[data-combo-empty]").hidden = visible > 0;
+        if (shrinking) {
+            next.hidden = true;
+            section.removeAttribute("data-filter");
+            section.style.pointerEvents = "none";
+        } else {
+            section.remove();
+        }
+        shown.style.overflow = "hidden";
+        shown.animate([{ height: `${from}px` }, { height: `${to}px` }], timing).finished.then(() => {
+            shown.style.overflow = "";
+            if (!shrinking) return;
+            section.remove();
+            next.hidden = false;
+        });
     }
 
     function menuHtml({ label, icon, current, iconOnly, plain, items }) {
@@ -501,7 +756,15 @@ async function openSelector(selector, session) {
         totalEl.textContent = state.items.length.toLocaleString();
         const sortLabel = config.sortOptions.find(option => option.value === state.sort)?.label;
         const modes = config.displayModes;
+        const sampleCount = config.images && data.length ? imagesOf(data[0]).length : 0;
         actionsEl.innerHTML = `
+            ${(config.toolbarActions || []).map((action, index) => `<button class="anima-sel-button ${action.primary ? "is-primary" : ""} ${action.iconOnly ? "is-icon" : ""}" type="button" data-action="toolbar-tool" data-index="${index}" title="${escapeHtml(action.label)}" aria-label="${escapeHtml(action.label)}">${selectorIcon(action.icon)}${action.iconOnly ? "" : escapeHtml(action.label)}</button>`).join("")}
+            ${sampleCount > 1 ? `
+                <div class="anima-sel-sample-toggle" role="group" aria-label="${escapeHtml(t("Sample image"))}">
+                    <span>${escapeHtml(t("Sample image"))}</span>
+                    ${Array.from({ length: sampleCount }, (_, index) => `<button type="button" data-action="default-image" data-image="${index}" aria-pressed="${index === state.defaultImage}" title="${escapeHtml(t("Show sample image {index} on every card", { index: index + 1 }))}">${index + 1}</button>`).join("")}
+                </div>
+            ` : ""}
             ${menuHtml({ label: t("Sort"), icon: "sort", current: sortLabel, plain: true, items: radioItems(config.sortOptions, state.sort, "sort") })}
             ${modes ? menuHtml({ label: t("Display Language"), icon: "language", current: modes.options.find(option => option.value === state.displayMode)?.label, plain: true, items: radioItems(modes.options, state.displayMode, "display-mode") }) : ""}
             ${menuHtml({
@@ -537,13 +800,49 @@ async function openSelector(selector, session) {
             : `<span class="anima-sel-placeholder">${escapeHtml(initialOf(title))}</span>`;
     }
 
+    // config.images lists several samples per item (fallback URLs each); the card and the details show the same one.
+    // The toolbar picks the sample for every card, a card's own switch overrides it for that item.
+    const imagesOf = item => item.isCustom ? [] : config.images?.(item) || [config.imageUrls(item)];
+    const imageIndexOf = item => state.imageIndex.get(keyOf(item)) ?? state.defaultImage;
+    const shownUrls = item => {
+        const images = imagesOf(item);
+        return images[imageIndexOf(item)] || images[0] || [];
+    };
+
+    function imageSwitchHtml(item, className) {
+        const count = imagesOf(item).length;
+        if (count < 2) return "";
+        const current = imageIndexOf(item);
+        return `<div class="${className}">${Array.from({ length: count }, (_, index) => {
+            const label = escapeHtml(t("Sample image {index}", { index: index + 1 }));
+            return `<button type="button" data-action="show-image" data-image="${index}" aria-pressed="${index === current}" title="${label}" aria-label="${label}">${index + 1}</button>`;
+        }).join("")}</div>`;
+    }
+
+    function showImage(item, index) {
+        state.imageIndex.set(keyOf(item), index);
+        const card = resultsEl.querySelector(`.anima-sel-card[data-index="${state.pageItems.findIndex(entry => keyOf(entry) === keyOf(item))}"]`);
+        if (card) {
+            const thumb = card.querySelector(".anima-sel-thumb");
+            thumb.querySelector("img")?.remove();
+            const img = document.createElement("img");
+            img.alt = "";
+            img.decoding = "async";
+            thumb.append(img);
+            thumb.classList.add("is-loading");
+            bindImage(img, shownUrls(item));
+            card.querySelectorAll('[data-action="show-image"]').forEach(button => button.setAttribute("aria-pressed", String(Number(button.dataset.image) === index)));
+        }
+        if (state.focus && keyOf(state.focus) === keyOf(item)) renderDetail();
+    }
+
     function cardHtml(item, index) {
         const info = cardInfo(item);
         const selected = selection.has(keyOf(item));
         const focused = state.focus && keyOf(state.focus) === keyOf(item);
         const favorite = store.isFavorite(item);
         const note = item.isCustom ? "" : store.record(item)?.nickname;
-        const hasImage = !item.isCustom && config.imageUrls(item).length > 0;
+        const hasImage = shownUrls(item).length > 0;
         return `
             <article class="anima-sel-card ${selected ? "is-selected" : ""} ${focused ? "is-focused" : ""}" data-index="${index}" tabindex="0" role="checkbox" aria-checked="${selected}" aria-label="${escapeHtml(info.title)}">
                 <div class="anima-sel-thumb ${hasImage ? "is-loading" : ""}">${placeholderHtml(item, info.title)}${hasImage ? '<img alt="" decoding="async">' : ""}</div>
@@ -559,6 +858,7 @@ async function openSelector(selector, session) {
                     ${info.meta ? `<div class="anima-sel-card-meta">${escapeHtml(info.meta)}</div>` : ""}
                     ${info.stats?.length ? `<div class="anima-sel-card-stats">${info.stats.map(statHtml).join("")}</div>` : ""}
                 </div>
+                ${imageSwitchHtml(item, "anima-sel-card-switch")}
             </article>
         `;
     }
@@ -598,12 +898,15 @@ async function openSelector(selector, session) {
         state.pageItems = state.items.slice(start, start + pageSize);
         const showCreate = currentTab() === "favorites" && state.collection !== DEFAULT_GROUP && state.page === 1;
         if (!state.pageItems.length && !showCreate) {
-            const selectedTab = currentTab() === "selected";
+            const tab = currentTab();
+            const [icon, title, hint] = tab === "selected" ? ["applied", t("No items selected yet"), t("Pick cards from All or Favorites first.")]
+                : tab === "favorites" && !state.query.trim() && !hasActiveFilters() ? ["star", t("No favorites yet"), t("Open a card's details in All and click Favorite to add it here.")]
+                : ["search", labels.empty, labels.emptyHint || t("Try another search or clear filters.")];
             resultsEl.innerHTML = `
                 <div class="anima-sel-empty">
-                    ${selectorIcon(selectedTab ? "applied" : "search")}
-                    <h3>${escapeHtml(selectedTab ? t("No items selected yet") : labels.empty)}</h3>
-                    <p>${escapeHtml(selectedTab ? t("Pick cards from All or Favorites first.") : t("Try another search or clear filters."))}</p>
+                    ${selectorIcon(icon)}
+                    <h3>${escapeHtml(title)}</h3>
+                    <p>${escapeHtml(hint)}</p>
                 </div>
             `;
             return;
@@ -614,7 +917,7 @@ async function openSelector(selector, session) {
         `;
         resultsEl.querySelectorAll(".anima-sel-card img").forEach(img => {
             const item = state.pageItems[Number(img.closest(".anima-sel-card").dataset.index)];
-            bindImage(img, config.imageUrls(item), { lazy: true });
+            bindImage(img, shownUrls(item), { lazy: true });
         });
     }
 
@@ -641,7 +944,6 @@ async function openSelector(selector, session) {
         const end = Math.min(state.page * pageSize, total);
         const pageButton = (target, icon, label, disabled) => `<button class="anima-sel-button" type="button" data-action="page" data-page="${target}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}" ${disabled ? "disabled" : ""}>${selectorIcon(icon)}</button>`;
         pagerEl.innerHTML = `
-            <div class="anima-sel-pager-stats">${escapeHtml(labels.total({ total, start, end }))}</div>
             <div class="anima-sel-pager-controls">
                 ${pageButton("first", "first", t("First"), state.page <= 1)}
                 ${pageButton("prev", "prev", t("Prev"), state.page <= 1)}
@@ -649,6 +951,7 @@ async function openSelector(selector, session) {
                 ${pageButton("next", "next", t("Next"), state.page >= pages)}
                 ${pageButton("last", "last", t("Last"), state.page >= pages)}
             </div>
+            <div class="anima-sel-pager-stats">${escapeHtml(labels.total({ total, start, end }))}</div>
         `;
     }
 
@@ -670,7 +973,7 @@ async function openSelector(selector, session) {
         let body = `<div class="anima-sel-muted-line">${escapeHtml(section.emptyText || t("No tags available"))}</div>`;
         if (section.loading) body = `<div class="anima-sel-muted-line">${escapeHtml(t("Loading official tags..."))}</div>`;
         else if (tags.length) {
-            body = `<div class="anima-sel-tag-list">${tags.map((tag, tagIndex) => `<button class="anima-sel-tag" type="button" data-action="copy-tag" data-section="${index}" data-tag="${tagIndex}" title="${escapeHtml(t("Copy"))}: ${escapeHtml(tag.value)}">${escapeHtml(tag.value)}${tag.hint ? `<small>${escapeHtml(tag.hint)}</small>` : ""}</button>`).join("")}</div>`;
+            body = `<div class="anima-sel-tag-list">${tags.map((tag, tagIndex) => `<button class="anima-sel-tag ${tag.hint ? "has-hint" : ""}" type="button" data-action="copy-tag" data-section="${index}" data-tag="${tagIndex}" title="${escapeHtml(t("Copy"))}: ${escapeHtml(tag.value)}">${tag.hint ? `${escapeHtml(tag.hint)}<small>${escapeHtml(tag.value)}</small>` : escapeHtml(tag.value)}</button>`).join("")}</div>`;
         }
         return `
             <section class="anima-sel-section ${section.accent ? "is-accent" : ""}">
@@ -684,6 +987,19 @@ async function openSelector(selector, session) {
     }
 
     function renderDetail() {
+        // The editor is mounted once per edit; later renders only let it update its own options.
+        if (state.editing) {
+            if (state.editor?.editing === state.editing && state.editor.element.isConnected) {
+                state.editor.handle?.refresh?.();
+                return;
+            }
+            const element = document.createElement("div");
+            element.className = "anima-sel-detail-scroll";
+            detailEl.replaceChildren(element);
+            state.editor = { editing: state.editing, element, handle: config.editor(element, state.editing, tools) };
+            return;
+        }
+        state.editor = null;
         const item = state.focus;
         if (!item) {
             detailEl.innerHTML = `
@@ -699,17 +1015,19 @@ async function openSelector(selector, session) {
             ? { title: item.nickname || item.name, subtitle: t("Custom"), sections: [{ title: t("Prompt Tags"), icon: "tag", accent: true, tags: splitPromptTokens(item.customContent).map(value => ({ value })) }] }
             : config.detail(item, ctx);
         state.sections = detail.sections;
+        state.detailActions = detail.actions || [];
         const selected = selection.has(keyOf(item));
         const favorite = store.isFavorite(item);
         const record = store.record(item);
         const note = item.isCustom ? "" : record?.nickname;
-        const urls = item.isCustom ? [] : config.imageUrls(item);
+        const urls = shownUrls(item);
         const groupIds = record?.groupIds || [];
         detailEl.innerHTML = `
             <button class="anima-sel-detail-dismiss" type="button" data-action="detail-close" aria-label="${escapeHtml(t("Close"))}">${selectorIcon("close")}</button>
             <div class="anima-sel-detail-scroll">
                 <div class="anima-sel-detail-preview">
                     <div class="anima-sel-thumb ${urls.length ? "is-loading" : ""}">${placeholderHtml(item, detail.title)}${urls.length ? '<img class="anima-sel-preview-bg" alt=""><img alt="">' : ""}</div>
+                    ${imageSwitchHtml(item, "anima-sel-preview-switch")}
                 </div>
                 <div class="anima-sel-detail-head">
                     <h2>${escapeHtml(detail.title)}</h2>
@@ -731,6 +1049,7 @@ async function openSelector(selector, session) {
                 </div>
                 ${detail.sections.map(sectionHtml).join("")}
                 ${detail.facts?.length ? `<dl class="anima-sel-info-list">${detail.facts.map(fact => `<div><dt>${escapeHtml(fact.label)}</dt><dd>${escapeHtml(fact.value)}</dd></div>`).join("")}</dl>` : ""}
+                ${state.detailActions.length ? `<div class="anima-sel-detail-tools">${state.detailActions.map((action, index) => `<button class="anima-sel-button ${action.danger ? "is-danger" : ""}" type="button" data-action="detail-tool" data-index="${index}">${selectorIcon(action.icon)}<span>${escapeHtml(action.label)}</span></button>`).join("")}</div>` : ""}
                 ${favorite || item.isCustom ? `
                     <div class="anima-sel-section">
                         <label class="anima-sel-field-label" for="anima-sel-note-${kind}">${escapeHtml(t("Nickname / Note"))}</label>
@@ -762,6 +1081,7 @@ async function openSelector(selector, session) {
     }
 
     function focusItem(item, { openDrawer = false } = {}) {
+        state.editing = null;
         state.focus = item;
         syncFocusMarks();
         renderDetail();
@@ -771,7 +1091,7 @@ async function openSelector(selector, session) {
     function updateSelectionUi(item) {
         if (item) syncCard(item);
         renderTabs();
-        actionsEl.querySelector('[data-action="clear-selected"]')?.toggleAttribute("disabled", !selection.size);
+        overlay.querySelectorAll('[data-action="clear-selected"]').forEach(button => button.toggleAttribute("disabled", !selection.size));
         if (state.focus && (!item || keyOf(item) === keyOf(state.focus))) renderDetail();
     }
 
@@ -847,7 +1167,7 @@ async function openSelector(selector, session) {
 
     // Tabs that were not active on apply use their primary apply mode.
     function stash(mode = defaultMode) {
-        session.pending.set(kind, { config, widget, items: [...selection.values()], keys: selectionKeys(), initialKeys, mode });
+        session.pending.set(kind, { selector, config, items: [...selection.values()], keys: selectionKeys(), initialKeys, mode });
     }
 
     async function apply(action, button) {
@@ -859,8 +1179,7 @@ async function openSelector(selector, session) {
             button.textContent = t("Loading official tags...");
             await Promise.all(loading.map(entry => entry.config.prepareApply(entry.items)));
         }
-        changed.forEach(entry => writeWidget(entry.widget, entry.config.buildOutput(entry.items, entry.mode)));
-        session.node.triggerSlot?.(0);
+        session.commit(changed);
         close();
     }
 
@@ -960,36 +1279,39 @@ async function openSelector(selector, session) {
                 return true;
             });
         },
-        "combo-toggle": target => {
-            const combo = target.closest(".anima-sel-combo");
-            setComboOpen(combo, !combo.classList.contains("open"));
-        },
         "filter-option": target => {
-            const combo = target.closest(".anima-sel-combo");
-            const def = filterDefs.find(entry => entry.id === combo.dataset.filter);
+            const def = filterDefs.find(entry => entry.id === target.dataset.filter);
             setFilterValue(def, target.dataset.value);
-            syncCombo(combo);
-            if (!def.multiple) {
-                setComboOpen(combo, false);
-                combo.querySelector(".anima-sel-combo-control").focus({ preventScroll: true });
-            }
+            if (def.tree && filterValues(def).includes(target.dataset.value)) state.expanded.add(expandKey(def, target.dataset.value));
+            refreshFilterSection(def);
             afterFilterChange();
         },
+        "tree-toggle": target => {
+            const def = filterDefs.find(entry => entry.id === target.dataset.filter);
+            const key = expandKey(def, target.dataset.value);
+            if (!state.expanded.delete(key)) state.expanded.add(key);
+            refreshFilterSection(def, true);
+        },
+        "filter-collapse": target => {
+            const def = filterDefs.find(entry => entry.id === target.dataset.filter);
+            if (!state.collapsedFilters.delete(def.id)) state.collapsedFilters.add(def.id);
+            refreshFilterSection(def, true);
+        },
         "filter-clear": target => {
-            const combo = target.closest(".anima-sel-combo");
-            clearFilter(filterDefs.find(entry => entry.id === combo.dataset.filter));
-            syncCombo(combo);
+            const def = filterDefs.find(entry => entry.id === target.dataset.filter);
+            clearFilter(def);
+            refreshFilterSection(def);
             afterFilterChange();
         },
         "chip-remove": target => {
             const def = filterDefs.find(entry => entry.id === target.dataset.filter);
             setFilterValue(def, target.dataset.value);
-            navEl.querySelectorAll(".anima-sel-combo").forEach(syncCombo);
+            refreshFilterSection(def);
             afterFilterChange();
         },
         "reset-filters": () => {
             filterDefs.forEach(clearFilter);
-            navEl.querySelectorAll(".anima-sel-combo").forEach(syncCombo);
+            renderNav();
             afterFilterChange();
         },
         "sort": target => {
@@ -1067,6 +1389,37 @@ async function openSelector(selector, session) {
             syncFocusMarks();
         },
         "detail-select": () => toggleSelection(state.focus),
+        "toolbar-tool": target => config.toolbarActions[Number(target.dataset.index)].run(tools),
+        "nav-tool": target => config.navActions[Number(target.dataset.index)].run(tools),
+        // An action with confirmLabel asks for a second click instead of opening a dialog.
+        "detail-tool": target => {
+            const action = state.detailActions[Number(target.dataset.index)];
+            if (action.confirmLabel && !target.classList.contains("is-armed")) {
+                target.classList.add("is-armed");
+                target.querySelector("span").textContent = action.confirmLabel;
+                return;
+            }
+            action.run(state.focus, tools);
+        },
+        "tree-add-root": target => startTreeEdit(target, "add-root"),
+        "tree-add-child": target => startTreeEdit(target, "add-child"),
+        "tree-rename": target => startTreeEdit(target, "rename"),
+        "tree-delete": target => startTreeEdit(target, "delete"),
+        "tree-cancel": endTreeEdit,
+        "tree-confirm-delete": commitTreeDelete,
+        "tree-add-item": target => filterDefs.find(entry => entry.id === target.dataset.filter).edit.addItem(target.dataset.value, tools),
+        "default-image": target => {
+            state.defaultImage = Number(target.dataset.image);
+            localStorage.setItem(`anima-selector-sample-${kind}`, state.defaultImage);
+            state.imageIndex.clear();
+            renderToolbar();
+            renderResults();
+            renderDetail();
+        },
+        "show-image": target => {
+            const card = target.closest(".anima-sel-card");
+            showImage(card ? state.pageItems[Number(card.dataset.index)] : state.focus, Number(target.dataset.image));
+        },
         "detail-favorite": () => runFavoriteChange(store.toggleFavorite(state.focus, config.favoriteRecord)),
         "organize": target => {
             const controls = target.closest(".anima-sel-favorite-controls");
@@ -1083,6 +1436,7 @@ async function openSelector(selector, session) {
             const tags = state.sections[Number(target.dataset.section)].tags.map(tag => tag.value);
             copyText(`${tags.join(", ")}, `, () => toast(t("Copied Successfully")));
         },
+        "copy-qq": () => copyText(PROMO_LINKS.qqGroup, () => toast(t("Copied: {text}", { text: PROMO_LINKS.qqGroup }))),
         "copy-tag": target => {
             const tag = state.sections[Number(target.dataset.section)].tags[Number(target.dataset.tag)].value;
             copyText(tag, () => toast(t("Copied: {text}", { text: tag })));
@@ -1127,7 +1481,6 @@ async function openSelector(selector, session) {
     });
 
     overlay.addEventListener("pointerdown", event => {
-        overlay.querySelectorAll(".anima-sel-combo.open").forEach(combo => !combo.contains(event.target) && setComboOpen(combo, false));
         overlay.querySelectorAll(".anima-sel-menu-wrap[open]").forEach(menu => !menu.contains(event.target) && menu.removeAttribute("open"));
         overlay.querySelectorAll(".anima-sel-favorite-controls").forEach(controls => {
             if (!controls.contains(event.target) && !controls.querySelector(".anima-sel-favorite-popover").hidden) closeFavoritePopover(controls);
@@ -1145,8 +1498,10 @@ async function openSelector(selector, session) {
             state.query = searchInput.value;
             searchClear.hidden = !searchInput.value;
             applySearch();
-        } else if (event.target.matches("[data-combo-search]")) {
-            filterCombo(event.target);
+        } else if (event.target.matches("[data-filter-search]")) {
+            const def = filterDefs.find(entry => entry.id === event.target.dataset.filterSearch);
+            state.optionQueries[def.id] = event.target.value;
+            event.target.closest(".anima-sel-filter").querySelector(".anima-sel-option-list").innerHTML = optionRowsHtml(def);
         }
     });
 
@@ -1181,15 +1536,22 @@ async function openSelector(selector, session) {
 
     overlay.addEventListener("keydown", event => {
         event.stopPropagation();
+        if (event.target.matches("[data-tree-input]") && (event.key === "Enter" || event.key === "Escape")) {
+            event.preventDefault();
+            if (event.key === "Enter") commitTreeEdit(event.target.value);
+            else endTreeEdit();
+            return;
+        }
+        if (event.key === "Escape" && state.editing && detailEl.contains(event.target)) {
+            event.preventDefault();
+            tools.closeEditor(state.editing.item);
+            return;
+        }
         if (event.key === "Escape") {
             event.preventDefault();
-            const combo = overlay.querySelector(".anima-sel-combo.open");
             const menu = overlay.querySelector(".anima-sel-menu-wrap[open]");
             const popover = [...overlay.querySelectorAll(".anima-sel-favorite-popover")].find(entry => !entry.hidden);
-            if (combo) {
-                setComboOpen(combo, false);
-                combo.querySelector(".anima-sel-combo-control").focus({ preventScroll: true });
-            } else if (menu) {
+            if (menu) {
                 menu.removeAttribute("open");
                 menu.querySelector("summary").focus({ preventScroll: true });
             } else if (popover) {
@@ -1221,6 +1583,11 @@ async function openSelector(selector, session) {
             event.preventDefault();
             (event.shiftKey ? controls.at(-1) : controls[0])?.focus();
         }
+    });
+
+    // Leaving an inline tree input saves it, like renaming a file.
+    navEl.addEventListener("focusout", event => {
+        if (event.target.matches("[data-tree-input]") && event.target.isConnected) commitTreeEdit(event.target.value);
     });
 
     // A tab switch replaces the open popup only once the next one is ready, without replaying the entrance animation.

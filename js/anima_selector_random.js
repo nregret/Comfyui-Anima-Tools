@@ -13,7 +13,7 @@ function getRandomState(node) {
     return node.properties[SELECTOR_RANDOM_PROPERTY];
 }
 
-function normalizeBoolean(value) {
+export function normalizeBoolean(value) {
     if (typeof value === "boolean") return value;
     if (typeof value === "number") return value !== 0;
     const text = String(value ?? "").trim().toLowerCase();

@@ -5,6 +5,8 @@ import { openPromptSelector } from "./anima_gallery_selector.js";
 import { artistSelector } from "./anima_artist_selector.js";
 import { characterSelector } from "./anima_character_selector.js";
 import { TAG_SELECTORS } from "./anima_tag_selectors.js";
+import { myTagsSelector } from "./anima_my_tags.js";
+import { installPromptBoxes } from "./anima_prompt_boxes.js";
 import {
     addPromptSelectorWidget,
     applySelectorWidgetValues,
@@ -12,13 +14,12 @@ import {
 } from "./anima_selector_random.js";
 
 const CLIP_ENCODE_NODE_NAME = "AnimaPromptPlusClipEncode";
-const [clothingSelector, backgroundSelector, poseSelector] = TAG_SELECTORS;
-// Same order as the tag widgets on the prompt nodes.
-const PROMPT_SELECTORS = [artistSelector, characterSelector, clothingSelector, poseSelector, backgroundSelector];
-// Button label and selector tabs of every node that opens the selector popup.
+const [clothingSelector, backgroundSelector, poseSelector, ...librarySelectors] = TAG_SELECTORS;
+// Tabs of the selector opened from each text box of the prompt nodes.
+const PROMPT_SELECTORS = [artistSelector, characterSelector, clothingSelector, poseSelector, backgroundSelector, ...librarySelectors, myTagsSelector];
+const PROMPT_NODES = new Set(["AnimaPromptPlus", CLIP_ENCODE_NODE_NAME]);
+// Button label and selector tab of every single-section selector node.
 const SELECTOR_NODES = {
-    AnimaPromptPlus: { open: "Open Prompt Selector", selectors: PROMPT_SELECTORS },
-    AnimaPromptPlusClipEncode: { open: "Open Prompt Selector", selectors: PROMPT_SELECTORS },
     AnimaArtistSelector: { open: "Open Artist Selector", selectors: [artistSelector] },
     AnimaCharacterSelector: { open: "Open Character Selector", selectors: [characterSelector] },
     AnimaClothingSelector: { open: "Open Clothing Selector", selectors: [clothingSelector] },
@@ -45,14 +46,18 @@ app.registerExtension({
 
     async beforeRegisterNodeDef(nodeType, nodeData) {
         const selectorNode = SELECTOR_NODES[nodeData.name];
-        if (!selectorNode) return;
+        const promptNode = PROMPT_NODES.has(nodeData.name);
+        if (!selectorNode && !promptNode) return;
         installSelectorExecutionSync(nodeType);
+        if (promptNode) installPromptBoxes(nodeType, PROMPT_SELECTORS);
 
         const origOnCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
             origOnCreated?.apply(this, arguments);
-            const { open, selectors } = selectorNode;
-            addPromptSelectorWidget(this, t(open), selectors, () => openPromptSelector(this, t("Anima Prompt Selector"), selectors));
+            if (selectorNode) {
+                const { open, selectors } = selectorNode;
+                addPromptSelectorWidget(this, t(open), selectors, () => openPromptSelector(this, t("Anima Prompt Selector"), selectors));
+            }
             if (nodeData.name === CLIP_ENCODE_NODE_NAME) setTimeout(() => removeInternalTextControls(this), 0);
         };
 

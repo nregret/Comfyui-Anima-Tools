@@ -24,12 +24,10 @@ assert.equal(
 assert.equal(
     getEntryPreviewUrl({
         section: "artist",
-        title: "hammer \\(sunset beach\\)",
-        preview: "https://blobs.animadex.net/ArtistOutputs/thumbs/hammer%20(sunset%20beach).webp",
-        preview_id: "40102",
-        preview_partition: "1",
+        title: "dairi",
+        preview: "https://cdn.jsdelivr.net/gh/nregret/AnimaTags-DB@main/images/artist/dairi-1cf6814da2-p1.webp",
     }),
-    "/anima-tools/artist/preview?name=hammer+%5C%28sunset+beach%5C%29&id=40102&partition=1",
+    "https://cdn.jsdelivr.net/gh/nregret/AnimaTags-DB@main/images/artist/dairi-1cf6814da2-p1.webp",
 );
 
 assert.equal(

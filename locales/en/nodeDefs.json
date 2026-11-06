@@ -106,35 +106,10 @@
   },
   "AnimaPromptPlus": {
     "display_name": "Anima Prompt",
-    "description": "Build a complete prompt from editable quality, artist, character, clothing, pose, background, and extra prompt sections, filled through one prompt selector that switches between the tag sections.",
+    "description": "Joins a list of text boxes from top to bottom. The Select button at the top right of each box opens the full prompt selector and writes the picked tags into that box; boxes can be added, removed and reordered.",
     "inputs": {
-      "quality_prompt": {
-        "name": "Quality Prompt",
-        "tooltip": "Leading quality and style prompt text. This is placed before all selected tag sections."
-      },
-      "artist_tags": {
-        "name": "Artist Tags",
-        "tooltip": "Artist style tags filled by the Artist Selector or edited manually. Output is normalized as @artist."
-      },
-      "character_tags": {
-        "name": "Character Tags",
-        "tooltip": "Character prompt tags filled by the Character Selector or edited manually."
-      },
-      "clothing_tags": {
-        "name": "Clothing Tags",
-        "tooltip": "Clothing prompt tags filled by the Clothing Selector or edited manually."
-      },
-      "pose_tags": {
-        "name": "Pose Tags",
-        "tooltip": "Pose prompt tags filled by the Pose Selector or edited manually."
-      },
-      "background_tags": {
-        "name": "Background Tags",
-        "tooltip": "Background prompt tags filled by the Background Selector or edited manually."
-      },
-      "extra_prompt": {
-        "name": "Extra Prompt",
-        "tooltip": "Additional prompt text appended after all selected tag sections."
+      "prompt_boxes": {
+        "name": "Text boxes"
       },
       "separator": {
         "name": "Separator",
@@ -147,39 +122,14 @@
   },
   "AnimaPromptPlusClipEncode": {
     "display_name": "Anima Prompt Plus",
-    "description": "Build the same structured prompt as Anima Prompt and encode it directly with CLIP. The resolved text is also returned and written to Anima PNG metadata.",
+    "description": "Builds the positive prompt from the same text boxes as Anima Prompt and encodes it directly with CLIP. The resolved text is also returned and written to Anima PNG metadata.",
     "inputs": {
       "clip": {
         "name": "CLIP",
         "tooltip": "The CLIP model used to tokenize and encode the composed positive prompt."
       },
-      "quality_prompt": {
-        "name": "Quality Prompt",
-        "tooltip": "Leading quality and style prompt text. This is placed before all selected tag sections."
-      },
-      "artist_tags": {
-        "name": "Artist Tags",
-        "tooltip": "Artist style tags filled by the Artist Selector or edited manually. Output is normalized as @artist."
-      },
-      "character_tags": {
-        "name": "Character Tags",
-        "tooltip": "Character prompt tags filled by the Character Selector or edited manually."
-      },
-      "clothing_tags": {
-        "name": "Clothing Tags",
-        "tooltip": "Clothing prompt tags filled by the Clothing Selector or edited manually."
-      },
-      "pose_tags": {
-        "name": "Pose Tags",
-        "tooltip": "Pose prompt tags filled by the Pose Selector or edited manually."
-      },
-      "background_tags": {
-        "name": "Background Tags",
-        "tooltip": "Background prompt tags filled by the Background Selector or edited manually."
-      },
-      "extra_prompt": {
-        "name": "Extra Prompt",
-        "tooltip": "Additional prompt text appended after all selected tag sections."
+      "prompt_boxes": {
+        "name": "Text boxes"
       },
       "separator": {
         "name": "Separator",

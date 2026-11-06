@@ -194,7 +194,8 @@ function characterSelectorConfig() {
     const hairCounts = countBy(data, "hair");
     const eyeCounts = countBy(data, "eye");
     const genderCounts = countBy(data, "gender");
-    const option = (counts, value, label) => ({ value, label, count: counts.get(value) || 0 });
+    const option = (counts, value, label, hint = "") => ({ value, label, hint, count: counts.get(value) || 0 });
+    const colorOption = (counts, value, key) => option(counts, value, t(key), t(key) === key ? "" : key);
     const filterDefs = [
         {
             id: "gender",
@@ -206,15 +207,15 @@ function characterSelectorConfig() {
             id: "hair",
             label: t("Hair Color"),
             options: [
-                option(hairCounts, "black", t("Black Hair")),
-                option(hairCounts, "blonde", t("Blonde Hair")),
-                option(hairCounts, "white", t("White/Silver")),
-                option(hairCounts, "brown", t("Brown Hair")),
-                option(hairCounts, "blue", t("Blue/Aqua")),
-                option(hairCounts, "pink", t("Pink Hair")),
-                option(hairCounts, "red", t("Red Hair")),
-                option(hairCounts, "purple", t("Purple Hair")),
-                option(hairCounts, "green", t("Green Hair")),
+                colorOption(hairCounts, "black", "Black Hair"),
+                colorOption(hairCounts, "blonde", "Blonde Hair"),
+                colorOption(hairCounts, "white", "White/Silver"),
+                colorOption(hairCounts, "brown", "Brown Hair"),
+                colorOption(hairCounts, "blue", "Blue/Aqua"),
+                colorOption(hairCounts, "pink", "Pink Hair"),
+                colorOption(hairCounts, "red", "Red Hair"),
+                colorOption(hairCounts, "purple", "Purple Hair"),
+                colorOption(hairCounts, "green", "Green Hair"),
             ],
             test: (item, value) => item.hair === value,
         },
@@ -222,13 +223,13 @@ function characterSelectorConfig() {
             id: "eye",
             label: t("Eye Color"),
             options: [
-                option(eyeCounts, "blue", t("Blue Eyes")),
-                option(eyeCounts, "red", t("Red Eyes")),
-                option(eyeCounts, "brown", t("Brown Eyes")),
-                option(eyeCounts, "green", t("Green Eyes")),
-                option(eyeCounts, "yellow", t("Yellow/Gold")),
-                option(eyeCounts, "purple", t("Purple Eyes")),
-                option(eyeCounts, "pink", t("Pink Eyes")),
+                colorOption(eyeCounts, "blue", "Blue Eyes"),
+                colorOption(eyeCounts, "red", "Red Eyes"),
+                colorOption(eyeCounts, "brown", "Brown Eyes"),
+                colorOption(eyeCounts, "green", "Green Eyes"),
+                colorOption(eyeCounts, "yellow", "Yellow/Gold"),
+                colorOption(eyeCounts, "purple", "Purple Eyes"),
+                colorOption(eyeCounts, "pink", "Pink Eyes"),
             ],
             test: (item, value) => item.eye === value,
         },

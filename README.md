@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="License">
 </p>
 
-<sub>A ComfyUI toolkit for the Anima model: visual pickers for 40,600 artists, 8,000 characters, outfits, poses and backgrounds, a random prompt draw node, and an Anima LoRA manager. The UI follows ComfyUI's language setting (Chinese / English).</sub>
+<sub>A ComfyUI toolkit for the Anima model: visual pickers for 42,197 artists, 8,000 characters, outfits, poses and backgrounds, a random prompt draw node, and an Anima LoRA manager. The UI follows ComfyUI's language setting (Chinese / English).</sub>
 
 <img src="./img/artist.jpeg" alt="Anima 提示词选择器" width="100%">
 
@@ -25,7 +25,7 @@
 
 | 功能 | 说明 |
 | --- | --- |
-| 🎨 **一个弹窗挑全部提示词** | 画师 **40,600**、角色 **8,000**、服装 **430**、姿势 **297**、背景 **1,087**，顶部标签页切换，角标显示每类已选数量，应用时分别写回对应输入框 |
+| 🎨 **一个弹窗挑全部提示词** | 画师 **42,197**、角色 **8,000**、服装 **430**、姿势 **297**、背景 **1,087**，顶部标签页切换，角标显示每类已选数量，选好的内容写进打开它的那个输入框 |
 | 🎲 **随机抽卡** | 运行时从全量数据里随机抽画师、角色、服装、背景和姿势，固定种子可复现，结果带缩略图预览 |
 | 🧩 **Anima LoRA 管理器** | 在 ComfyUI 内搜索 Civitai 上的 Anima LoRA，下载、收藏、排序后直接叠加到模型上 |
 | 🖼️ **Danbooru 随机图 + 标签** | 随机抽一张 Danbooru 静态图，同时输出按 Anima 写法整理好的标签 |
@@ -47,14 +47,14 @@ git clone https://github.com/nregret/Comfyui-Anima-Tools.git
 ## 快速上手
 
 1. 添加 **Anima 提示词+** 节点，接入 CLIP，把 `正面条件` 接到采样器。
-2. 点击节点上的 **打开提示词选择器**，在画师、角色、服装、姿势、背景之间切换挑选，点 **确认应用到节点**。
-3. 想每次出图都换点花样？打开节点底部「随机」一行对应分类的开关，或者直接换成 **Anima 提示词随机抽卡器**。
+2. 点击任意输入框右上角的 **选择**，在画师、角色、服装、姿势、背景和社区 Tag 库之间切换挑选，点 **确认应用到节点**，选中的 Tags 会写进这个框。
+3. 想每次出图都换点花样？点输入框标题栏的随机图标，勾选运行时要随机的分类，或者直接换成 **Anima 提示词随机抽卡器**。
 
 ## 功能展示
 
 ### 🎨 提示词选择器
 
-五类选择器共用一个弹窗：左侧是「全部 / 收藏夹 / 已选择」，可展开筛选面板，右侧详情页显示大图和提示词（点击即可复制）。切换分类时已选内容会保留，下次打开时回到上次使用的分类。
+五类选择器共用一个弹窗：左侧是「全部 / 收藏夹 / 已选择」和筛选面板，分类、特征等选项直接列出、点一下就筛选，每组可以折叠，选项多时带搜索；社区 Tag 库按原作者的分类显示成可展开的分类树。右侧详情页显示大图和提示词（点击即可复制）。切换分类时已选内容会保留，下次打开时回到上次使用的分类。
 
 <table>
   <tr>
@@ -67,17 +67,33 @@ git clone https://github.com/nregret/Comfyui-Anima-Tools.git
   </tr>
 </table>
 
-- **画师**：按作品数、独特度或字母排序，输出统一整理为 `@画师名`；样图依次尝试 Animadex、jsDelivr、GitHub Raw 与 Statically，加载失败会自动换源。
+- **画师**：按作品数或字母排序，输出统一整理为 `@画师名`；每位画师有两张用 Anima 基础模型生成的样图，详情里可以切换。
 - **收藏与自定义**：收藏可以分组和加备注；服装、姿势、背景还能添加自己的条目。
-- **批量操作**：一键复制或清空已选内容，分页栏可以输入页码直达。
+- **批量操作**：底部「清除已选」一键清空当前分类的已选内容，右上角「更多」菜单可以复制已选，分页栏可以输入页码直达。
+
+#### 社区 Tag 库
+
+「Anima 提示词」和「Anima 提示词+」的选择器里，另有三个社区作者授权收录的 Tag 库，各占一个标签页：
+
+| 标签页 | 作者 | 条目 | 内容 |
+| --- | --- | ---: | --- |
+| 千藤的衣柜 | 叫我千藤就好了 | 125 | 整套服装搭配，附风格说明 |
+| 渡鸦的构图鉴 | 渡鸦 | 6,570 | 服装、配饰、姿势、表情、背景、画风、角色等 Tag 词典，按原作者分类筛选 |
+| 凉夏之夜的构图风格 | 凉夏之夜 | 64 | 带镜头与权重的完整场景描述 |
+
+数据整理自 [quicktagcloud](https://novelai.quicktagcloud.com/)，由 `tools/import_codex_libraries.py` 生成。下划线已转成空格，括号已转义，原有的 `(tag:权重)` 保留。渡鸦构图鉴中的「秋季课堂」使用 NovelAI 专有语法，没有收录。
+
+#### 我的Tag
+
+同一个选择器的最后一个标签页是自己的 Tag 库。在左侧「调整筛选」里点「+」新建大分类，鼠标移到分类上可以新建子分类、新建条目、重命名或删除；条目在右侧面板里填写名称、Tag 内容（英文或中文逗号分隔，保存时统一整理成 `, `）并上传封面（支持点击、拖入或粘贴，自动压缩成 WebP）。内容保存在 `ComfyUI/user/anima_tools_my_tags/`（`my_tags.json` 和 `covers/` 封面），更新或重装插件都不会丢失，具体路径可以点工具栏的 ⓘ 查看。欢迎把自己的 Tag 库分享到 QQ 群 173273201，一起共建开源社区。
 
 ### 🧩 提示词节点
 
 <img src="./img/nodes.jpeg" alt="提示词节点" width="100%">
 
-- **Anima 提示词 / Anima 提示词+**：质量、画师、角色、服装、姿势、背景、额外提示词分区编辑，按这个顺序拼接，自动去掉多余的逗号和空格。提示词+ 直接用 CLIP 编码并输出条件。
+- **Anima 提示词 / Anima 提示词+**：由若干输入框从上到下拼接，自动去掉多余的逗号和空格。每个框右上角的 **选择** 打开完整的选择器，选中的 Tags 写进这个框，手打的内容会保留；标题栏右侧依次是随机、清空、复制、选择和删除按钮：清空会清掉框里的文字和已选记录，复制把框里的文字复制到剪贴板。新建节点只有一个框，用底部「添加输入框」按需增加；拖动框左上角的手柄调整顺序，点标题重命名，框高随内容自动伸缩。每个框左侧都有自己的连接点，可以把其他节点的文本直接连到框上；连上后这个框改用连进来的文本，和原生输入框被连接时一样，断开后恢复原来的内容。提示词+ 直接用 CLIP 编码并输出条件。
 - **五个单类选择器**（画师 / 角色 / 服装 / 背景 / 姿势）：每个只管一类，输出顺序为 **上游文本 → 所选 Tags → 额外文本**，可以像上图一样串成一条链。
-- **随机开关**：节点底部「随机」一行打开后，该分类每次运行自动随机一项，并把抽到的内容写回输入框。
+- **随机**：提示词节点在输入框标题栏的随机图标里勾选分类，每次运行从这些分类各抽一项写进这个框；单类选择器在节点底部「随机」一行打开。
 
 ### 🎲 提示词随机抽卡器
 
@@ -111,7 +127,7 @@ LoRA 只从 ComfyUI 已登记的 `loras` 目录加载，下载保存到第一个
 
 | 节点 | 中文名 | 用途 | 输出 |
 | --- | --- | --- | --- |
-| Anima Prompt | Anima 提示词 | 分区编辑提示词，带统一选择器与随机开关 | `text` |
+| Anima Prompt | Anima 提示词 | 可增减的输入框，每个框都能打开选择器 | `text` |
 | Anima Prompt Plus | Anima 提示词+ | 同上，并直接用 CLIP 编码 | `positive`、`text` |
 | Anima Artist / Character / Clothing / Background / Pose Selector | Anima 画师 / 角色 / 服装 / 背景 / 姿势选择器 | 单类选择器，可串联 | `text` |
 | Anima Prompt Random Draw | Anima 提示词随机抽卡器 | 运行时随机组合提示词 | `text` |
@@ -121,8 +137,9 @@ LoRA 只从 ComfyUI 已登记的 `loras` 目录加载，下载保存到第一个
 <details>
 <summary><b>Anima 提示词 / 提示词+ 参数</b></summary>
 
-- `quality_prompt` / `artist_tags` / `character_tags` / `clothing_tags` / `pose_tags` / `background_tags` / `extra_prompt`：各分区文本，Tag 分区可以用选择器填入，也可以手动修改；画师统一整理为 `@画师名`。
-- `separator`：分区之间的分隔符，默认 `, `。
+- `prompt_boxes`：输入框列表（JSON），由节点界面维护，每项包含文本 `text`、运行时随机的分类 `random` 和选择器已选内容。通过 API 调用时可以只传 `[{"text": "..."}]`。
+- `box_<id>`（可选输入）：每个框对应一个绑定在框上的文本输入，`id` 与 `prompt_boxes` 里该框的 `id` 一致；连接后用连入的文本代替该框的内容。
+- `separator`：拼接时使用的分隔符，默认 `, `。
 - 提示词+ 额外需要 `clip` 输入。
 
 </details>
@@ -173,7 +190,7 @@ LoRA 只从 ComfyUI 已登记的 `loras` 目录加载，下载保存到第一个
 <details>
 <summary><b>旧工作流里的「Tag 选择器」节点变红了？</b></summary>
 
-3.3.5 起，旧的 10 个单类选择器（Artist / Character / Clothing / Background / Pose Tag Selector 及其 `+` 版本）合并成了 5 个新的单类选择器，请在工作流里换成对应的新节点。Anima 提示词、提示词+ 与随机抽卡器的旧工作流可以直接打开。
+3.3.5 起，旧的 10 个单类选择器（Artist / Character / Clothing / Background / Pose Tag Selector 及其 `+` 版本）合并成了 5 个新的单类选择器，请在工作流里换成对应的新节点。Anima 提示词、提示词+ 与随机抽卡器的旧工作流可以直接打开，提示词节点原来的七个分区会自动转成七个输入框，随机开关也会保留；通过 API 提交 `artist_tags` 等旧字段的调用需要改成 `prompt_boxes`。
 
 </details>
 
@@ -187,7 +204,7 @@ LoRA 只从 ComfyUI 已登记的 `loras` 目录加载，下载保存到第一个
 <details>
 <summary><b>选择器里的图片加载很慢？</b></summary>
 
-预览图来自外部 CDN，第一次打开需要下载，之后会走浏览器缓存。画师样图加载失败时会自动换下一个源。
+预览图来自外部 CDN，第一次打开需要下载，之后会走浏览器缓存。
 
 </details>
 
@@ -203,7 +220,7 @@ for f in tests/*.test.mjs; do node "$f" || exit 1; done
 ## 鸣谢
 
 - [AnimaDex](https://github.com/zetaneko/AnimaDex)：角色数据库与多维筛选的数据结构和设计灵感。
-- [Anima-Style-Explorer](https://github.com/ThetaCursed/Anima-Style-Explorer)：40,000+ Danbooru 画师数据库与样图。
+- [Anima Style Gallery](https://anima.mooshieblob.com/)（Mooshieblob）：42,000+ 画师名单与 Anima 样图。
 - [Danbooru](https://danbooru.donmai.us/wiki_pages/tag_group%3Aattire)：服装标签组 `tag group:attire`，用于随机抽卡器的 Danbooru 服装搭配。
 - **CircleStone Labs**：开源二次元大模型 **Anima 2B**，这个工具箱正是为它而做。
 

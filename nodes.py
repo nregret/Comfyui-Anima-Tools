@@ -1,19 +1,21 @@
+import json
+
 def _anima_selector_tags_result(tags, text):
     payload = tags if isinstance(tags, dict) else {}
     return {"ui": {"anima_selector_tags": [payload]}, "result": (text,)}
+
+# The prompt nodes draw one text box per entry of prompt_boxes, a JSON list of
+# {"id", "text", "label", "random", "picks"} written by js/anima_prompt_boxes.js.
+# Each box has an undeclared STRING input box_<id>; ComfyUI passes linked inputs through as kwargs, and a linked
+# box uses the linked text instead of its own, like a linked text widget.
+DEFAULT_PROMPT_BOXES = json.dumps([{"text": ""}])
 
 class AnimaPromptPlus:
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "quality_prompt": ("STRING", {"multiline": True, "default": ""}),
-                "artist_tags": ("STRING", {"multiline": True, "default": ""}),
-                "character_tags": ("STRING", {"multiline": True, "default": ""}),
-                "clothing_tags": ("STRING", {"multiline": True, "default": ""}),
-                "pose_tags": ("STRING", {"multiline": True, "default": ""}),
-                "background_tags": ("STRING", {"multiline": True, "default": ""}),
-                "extra_prompt": ("STRING", {"multiline": True, "default": ""}),
+                "prompt_boxes": ("STRING", {"default": DEFAULT_PROMPT_BOXES}),
                 "separator": ("STRING", {"default": ", "}),
             }
         }
@@ -44,35 +46,7 @@ class AnimaPromptPlus:
                 tokens.append(f"@{clean}")
         return tokens
 
-    def _selector_tags(self, artist_tags, character_tags, clothing_tags, pose_tags, background_tags):
-        return {
-            "artist_tags": artist_tags,
-            "character_tags": character_tags,
-            "clothing_tags": clothing_tags,
-            "pose_tags": pose_tags,
-            "background_tags": background_tags,
-        }
-
-    def _compose_prompt_text(
-        self,
-        quality_prompt,
-        artist_tags,
-        character_tags,
-        clothing_tags,
-        pose_tags,
-        background_tags,
-        extra_prompt,
-        separator=", ",
-    ):
-        parts = []
-        parts.extend(self._split_prompt_tokens(quality_prompt))
-        parts.extend(self._artist_tokens(artist_tags))
-        parts.extend(self._split_prompt_tokens(character_tags))
-        parts.extend(self._split_prompt_tokens(clothing_tags))
-        parts.extend(self._split_prompt_tokens(pose_tags))
-        parts.extend(self._split_prompt_tokens(background_tags))
-        parts.extend(self._split_prompt_tokens(extra_prompt))
-
+    def _join_prompt_parts(self, parts, separator=", "):
         if not parts:
             return ""
 
@@ -81,35 +55,17 @@ class AnimaPromptPlus:
             return f"{', '.join(parts)}, "
         return sep.join(parts)
 
-    def compose_prompt(
-        self,
-        quality_prompt,
-        artist_tags,
-        character_tags,
-        clothing_tags,
-        pose_tags,
-        background_tags,
-        extra_prompt,
-        separator=", ",
-    ):
-        selector_tags = self._selector_tags(
-            artist_tags,
-            character_tags,
-            clothing_tags,
-            pose_tags,
-            background_tags,
-        )
-        text = self._compose_prompt_text(
-            quality_prompt,
-            artist_tags,
-            character_tags,
-            clothing_tags,
-            pose_tags,
-            background_tags,
-            extra_prompt,
-            separator,
-        )
-        return _anima_selector_tags_result(selector_tags, text)
+    def _compose_prompt_text(self, prompt_boxes, separator=", ", box_inputs=None):
+        box_inputs = box_inputs or {}
+        parts = []
+        for box in json.loads(prompt_boxes):
+            linked = box_inputs.get(f"box_{box.get('id')}")
+            parts.extend(self._split_prompt_tokens(box.get("text") if linked is None else linked))
+        return self._join_prompt_parts(parts, separator)
+
+    def compose_prompt(self, prompt_boxes, separator=", ", **box_inputs):
+        text = self._compose_prompt_text(prompt_boxes, separator, box_inputs)
+        return _anima_selector_tags_result({"prompt_boxes": prompt_boxes}, text)
 
 
 class AnimaPromptPlusClipEncode(AnimaPromptPlus):
@@ -141,47 +97,18 @@ class AnimaPromptPlusClipEncode(AnimaPromptPlus):
             extra_pnginfo["anima_prompt"] = records
         records[str(unique_id or "prompt")] = {"positive": text}
 
-    def encode_prompt(
-        self,
-        clip,
-        quality_prompt,
-        artist_tags,
-        character_tags,
-        clothing_tags,
-        pose_tags,
-        background_tags,
-        extra_prompt,
-        separator=", ",
-        extra_pnginfo=None,
-        unique_id=None,
-    ):
+    def encode_prompt(self, clip, prompt_boxes, separator=", ", extra_pnginfo=None, unique_id=None, **box_inputs):
         if clip is None:
             raise RuntimeError(
                 "ERROR: clip input is invalid: None\n\n"
                 "Connect a valid CLIP output from a checkpoint or text encoder loader."
             )
 
-        selector_tags = self._selector_tags(
-            artist_tags,
-            character_tags,
-            clothing_tags,
-            pose_tags,
-            background_tags,
-        )
-        resolved_text = self._compose_prompt_text(
-            quality_prompt,
-            artist_tags,
-            character_tags,
-            clothing_tags,
-            pose_tags,
-            background_tags,
-            extra_prompt,
-            separator,
-        )
+        resolved_text = self._compose_prompt_text(prompt_boxes, separator, box_inputs)
         conditioning = clip.encode_from_tokens_scheduled(clip.tokenize(resolved_text))
         self._record_prompt_metadata(extra_pnginfo, unique_id, resolved_text)
         return {
-            "ui": {"anima_selector_tags": [selector_tags]},
+            "ui": {"anima_selector_tags": [{"prompt_boxes": prompt_boxes}]},
             "result": (conditioning, resolved_text),
         }
 
@@ -208,10 +135,10 @@ class AnimaTagSelector(AnimaPromptPlus):
     CATEGORY = "AnimaArt"
 
     def select_tags(self, extra_text, opt_prompt="", **section_tags):
-        sections = dict.fromkeys(("artist_tags", "character_tags", "clothing_tags", "pose_tags", "background_tags"), "")
-        sections.update(section_tags)
-        text = self._compose_prompt_text(quality_prompt=opt_prompt, extra_prompt=extra_text, **sections)
-        return _anima_selector_tags_result(section_tags, text)
+        tags = section_tags[f"{self.SECTION}_tags"]
+        tag_parts = self._artist_tokens(tags) if self.SECTION == "artist" else self._split_prompt_tokens(tags)
+        parts = [*self._split_prompt_tokens(opt_prompt), *tag_parts, *self._split_prompt_tokens(extra_text)]
+        return _anima_selector_tags_result(section_tags, self._join_prompt_parts(parts))
 
 
 class AnimaArtistSelector(AnimaTagSelector):
@@ -235,6 +162,7 @@ class AnimaPoseSelector(AnimaTagSelector):
 
 class AnimaPromptComposer:
     SELECTION_PROPERTY = "anima_prompt_composer_selection"
+    ARTIST_PREVIEW_BASE = "https://cdn.jsdelivr.net/gh/nregret/AnimaTags-DB@1c4bf5bde9acba5b54396f0bdc9807f09b68bf9c/images/artist"
 
     CHARACTER_DETAIL_MODES = ("trigger", "trigger_tags", "trigger_random_tags")
     CLOTHING_SOURCES = ("author", "danbooru", "character_tags", "random")
@@ -544,16 +472,12 @@ class AnimaPromptComposer:
         if not name:
             return None
         item_id = item.get("id") or ""
-        partition = item.get("p") or 1
-        preview_name = re.sub(r"\\([()[\]{}])", r"\1", name).strip()
         return {
             "section": "artist",
             "key": f"artist:{item_id or name}",
             "title": name,
             "subtitle": f"{item.get('post_count', 0)} works" if item.get("post_count") else "",
-            "preview": f"https://blobs.animadex.net/ArtistOutputs/thumbs/{urllib.parse.quote(preview_name, safe='')}.webp",
-            "preview_id": str(item_id),
-            "preview_partition": str(partition),
+            "preview": f"{self.ARTIST_PREVIEW_BASE}/{item_id}-p1.webp" if item_id else "",
             "prompt_parts": [f"@{name}"],
         }
 
@@ -974,6 +898,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+import uuid
 
 SELECTOR_RANDOM_PROPERTY = "anima_selector_random"
 
@@ -983,21 +908,10 @@ SELECTOR_RANDOM_INPUTS = {
     "AnimaClothingSelector": {"clothing": "clothing_tags"},
     "AnimaBackgroundSelector": {"background": "background_tags"},
     "AnimaPoseSelector": {"pose": "pose_tags"},
-    "AnimaPromptPlus": {
-        "artist": "artist_tags",
-        "character": "character_tags",
-        "clothing": "clothing_tags",
-        "pose": "pose_tags",
-        "background": "background_tags",
-    },
-    "AnimaPromptPlusClipEncode": {
-        "artist": "artist_tags",
-        "character": "character_tags",
-        "clothing": "clothing_tags",
-        "pose": "pose_tags",
-        "background": "background_tags",
-    },
 }
+
+# Prompt nodes keep their random sections per text box inside prompt_boxes.
+PROMPT_BOX_NODES = ("AnimaPromptPlus", "AnimaPromptPlusClipEncode")
 
 SELECTOR_WIDGET_ORDERS = {
     "AnimaArtistSelector": ["artist_tags", "extra_text"],
@@ -1005,26 +919,8 @@ SELECTOR_WIDGET_ORDERS = {
     "AnimaClothingSelector": ["clothing_tags", "extra_text"],
     "AnimaBackgroundSelector": ["background_tags", "extra_text"],
     "AnimaPoseSelector": ["pose_tags", "extra_text"],
-    "AnimaPromptPlus": [
-        "quality_prompt",
-        "artist_tags",
-        "character_tags",
-        "clothing_tags",
-        "pose_tags",
-        "background_tags",
-        "extra_prompt",
-        "separator",
-    ],
-    "AnimaPromptPlusClipEncode": [
-        "quality_prompt",
-        "artist_tags",
-        "character_tags",
-        "clothing_tags",
-        "pose_tags",
-        "background_tags",
-        "extra_prompt",
-        "separator",
-    ],
+    "AnimaPromptPlus": ["prompt_boxes", "separator"],
+    "AnimaPromptPlusClipEncode": ["prompt_boxes", "separator"],
 }
 
 def _selector_random_state(workflow_node):
@@ -1121,25 +1017,45 @@ def _resolve_anima_selector_random_nodes(prompt, extra_pnginfo, composer):
             _set_selector_workflow_widget_value(workflow_node, class_type, input_name, text)
             _record_selector_random(extra_pnginfo, node_id, class_type, section, input_name, text, selected)
 
+def _resolve_prompt_box_random_nodes(prompt, extra_pnginfo, composer):
+    workflow = extra_pnginfo.get("workflow")
+    for node_id, node in list(prompt.items()):
+        if not isinstance(node, dict) or node.get("class_type") not in PROMPT_BOX_NODES:
+            continue
+        inputs = node.get("inputs")
+        prompt_boxes = inputs.get("prompt_boxes") if isinstance(inputs, dict) else None
+        if not isinstance(prompt_boxes, str):
+            continue
+
+        boxes = json.loads(prompt_boxes)
+        drawn = False
+        for index, box in enumerate(boxes):
+            parts = []
+            for section in box.get("random") or []:
+                text, selected = _selector_random_text(composer, section)
+                if not text:
+                    continue
+                parts.extend(part.strip() for part in text.split(",") if part.strip())
+                _record_selector_random(extra_pnginfo, node_id, node["class_type"], f"{index}:{section}", "prompt_boxes", text, selected)
+            if parts:
+                box["text"] = f"{', '.join(parts)}, "
+                box.pop("picks", None)
+                drawn = True
+        if drawn:
+            inputs["prompt_boxes"] = json.dumps(boxes, ensure_ascii=False)
+            workflow_node = composer._find_workflow_node(workflow, node_id)
+            _set_selector_workflow_widget_value(workflow_node, node["class_type"], "prompt_boxes", inputs["prompt_boxes"])
+
 def _resolve_anima_prompt_plus_clip_nodes(prompt, extra_pnginfo, prompt_plus):
     updates = {}
     for node_id, node in list(prompt.items()):
         if not isinstance(node, dict) or node.get("class_type") != "AnimaPromptPlusClipEncode":
             continue
         inputs = node.setdefault("inputs", {})
-        if not isinstance(inputs, dict):
+        if not isinstance(inputs, dict) or not isinstance(inputs.get("prompt_boxes"), str):
             continue
 
-        resolved_text = prompt_plus._compose_prompt_text(
-            inputs.get("quality_prompt", ""),
-            inputs.get("artist_tags", ""),
-            inputs.get("character_tags", ""),
-            inputs.get("clothing_tags", ""),
-            inputs.get("pose_tags", ""),
-            inputs.get("background_tags", ""),
-            inputs.get("extra_prompt", ""),
-            inputs.get("separator", ", "),
-        )
+        resolved_text = prompt_plus._compose_prompt_text(inputs["prompt_boxes"], inputs.get("separator", ", "))
         inputs["text"] = resolved_text
 
         if isinstance(extra_pnginfo, dict):
@@ -1150,13 +1066,7 @@ def _resolve_anima_prompt_plus_clip_nodes(prompt, extra_pnginfo, prompt_plus):
             records[str(node_id)] = {"positive": resolved_text}
 
         updates[str(node_id)] = {
-            "quality_prompt": inputs.get("quality_prompt", ""),
-            "artist_tags": inputs.get("artist_tags", ""),
-            "character_tags": inputs.get("character_tags", ""),
-            "clothing_tags": inputs.get("clothing_tags", ""),
-            "pose_tags": inputs.get("pose_tags", ""),
-            "background_tags": inputs.get("background_tags", ""),
-            "extra_prompt": inputs.get("extra_prompt", ""),
+            "prompt_boxes": inputs["prompt_boxes"],
             "separator": inputs.get("separator", ", "),
         }
     return updates
@@ -1181,6 +1091,7 @@ def _install_anima_prompt_composer_queue_resolver():
 
             composer = AnimaPromptComposer()
             _resolve_anima_selector_random_nodes(prompt, extra_pnginfo, composer)
+            _resolve_prompt_box_random_nodes(prompt, extra_pnginfo, composer)
             prompt_plus_updates = _resolve_anima_prompt_plus_clip_nodes(
                 prompt,
                 extra_pnginfo,
@@ -1212,34 +1123,15 @@ def get_favorites_path():
     os.makedirs(user_dir, exist_ok=True)
     return os.path.join(user_dir, "anima_tools_favorites.json")
 
-FAVORITE_SECTIONS = ["artist", "character", "lora", "clothing", "background", "pose"]
+FAVORITE_SECTIONS = ["artist", "character", "lora", "clothing", "background", "pose", "qianteng", "raven", "composition_style", "my_tags"]
 
 def get_default_favorites_data():
     return {
-        "artist": {
-            "groups": [{"id": "default", "name": "Default Favorites", "isSystem": True}],
-            "items": []
-        },
-        "character": {
-            "groups": [{"id": "default", "name": "Default Favorites", "isSystem": True}],
-            "items": []
-        },
-        "lora": {
-            "groups": [{"id": "default", "name": "Default Favorites", "isSystem": True}],
-            "items": []
-        },
-        "clothing": {
-            "groups": [{"id": "default", "name": "Default Favorites", "isSystem": True}],
-            "items": []
-        },
-        "background": {
-            "groups": [{"id": "default", "name": "Default Favorites", "isSystem": True}],
-            "items": []
-        },
-        "pose": {
+        key: {
             "groups": [{"id": "default", "name": "Default Favorites", "isSystem": True}],
             "items": []
         }
+        for key in FAVORITE_SECTIONS
     }
 
 def normalize_favorites_data(data):
@@ -1330,15 +1222,82 @@ async def save_favorites_api(request):
         print(f"[Anima Tools] Error saving favorites: {e}")
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
+# "My Tags" is the user's own tag library: my_tags.json plus cover images, kept in the ComfyUI user
+# directory so updating or reinstalling the plugin never touches it.
+MY_TAGS_COVER_NAME = re.compile(r"^[0-9a-f]{32}\.webp$")
+MY_TAGS_COVER_MAX_BYTES = 4 * 1024 * 1024
+
+def get_my_tags_dir():
+    path = os.path.join(os.path.dirname(get_favorites_path()), "anima_tools_my_tags")
+    os.makedirs(os.path.join(path, "covers"), exist_ok=True)
+    return path
+
+def load_my_tags():
+    path = os.path.join(get_my_tags_dir(), "my_tags.json")
+    data = {}
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    return {
+        "categories": data.get("categories") if isinstance(data.get("categories"), list) else [],
+        "items": data.get("items") if isinstance(data.get("items"), list) else [],
+    }
+
+@PromptServer.instance.routes.get("/anima-tools/my-tags")
+async def get_my_tags_api(request):
+    try:
+        return web.json_response({**load_my_tags(), "path": get_my_tags_dir()})
+    except Exception as e:
+        print(f"[Anima Tools] Error reading My Tags: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+@PromptServer.instance.routes.post("/anima-tools/my-tags")
+async def save_my_tags_api(request):
+    try:
+        body = await request.json()
+        if not isinstance(body, dict) or not isinstance(body.get("categories"), list) or not isinstance(body.get("items"), list):
+            return web.json_response({"success": False, "error": "Expected categories and items lists"}, status=400)
+        folder = get_my_tags_dir()
+        path = os.path.join(folder, "my_tags.json")
+        if os.path.exists(path):
+            with open(path, "rb") as src, open(path + ".bak", "wb") as dst:
+                dst.write(src.read())
+        tmp_path = path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump({"categories": body["categories"], "items": body["items"]}, f, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, path)
+        # Covers are uploaded right before the save that references them, so unreferenced ones are leftovers.
+        used = {item.get("cover") for item in body["items"] if isinstance(item, dict)}
+        covers = os.path.join(folder, "covers")
+        for name in os.listdir(covers):
+            if MY_TAGS_COVER_NAME.match(name) and name not in used:
+                os.remove(os.path.join(covers, name))
+        return web.json_response({"success": True})
+    except Exception as e:
+        print(f"[Anima Tools] Error saving My Tags: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+@PromptServer.instance.routes.post("/anima-tools/my-tags/cover")
+async def upload_my_tags_cover_api(request):
+    data = await request.read()
+    if len(data) > MY_TAGS_COVER_MAX_BYTES or data[:4] != b"RIFF" or data[8:12] != b"WEBP":
+        return web.json_response({"success": False, "error": "Expected a WebP image up to 4 MB"}, status=400)
+    name = f"{uuid.uuid4().hex}.webp"
+    with open(os.path.join(get_my_tags_dir(), "covers", name), "wb") as f:
+        f.write(data)
+    return web.json_response({"success": True, "cover": name})
+
+@PromptServer.instance.routes.get("/anima-tools/my-tags/cover/{name}")
+async def get_my_tags_cover_api(request):
+    name = request.match_info["name"]
+    path = os.path.join(get_my_tags_dir(), "covers", name)
+    if not MY_TAGS_COVER_NAME.match(name) or not os.path.isfile(path):
+        return web.Response(status=404)
+    return web.FileResponse(path, headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
 
 ANIMADEX_CHARACTER_SEARCH_API = "https://animadex.net/api/characters/search"
 ANIMADEX_CHARACTER_THUMB_BASE = "https://blobs.animadex.net/Outputs/thumbs"
-ANIMADEX_ARTIST_THUMB_BASE = "https://blobs.animadex.net/ArtistOutputs/thumbs"
-ANIMA_ASSETS_BASES = (
-    "https://fastly.jsdelivr.net/gh/ThetaCursed/Anima-Assets@main/images",
-    "https://raw.githubusercontent.com/ThetaCursed/Anima-Assets/main/images",
-)
-SAFEBOORU_POSTS_API = "https://safebooru.org/index.php"
 ANIMADEX_PREVIEW_MAX_BYTES = 8 * 1024 * 1024
 _animadex_character_cache = {}
 _animadex_character_cache_lock = threading.Lock()
@@ -1354,35 +1313,6 @@ def _animadex_character_preview_url(name: str, copyright: str) -> str:
     raw_name = f"{name}, {copyright}" if copyright else name
     encoded_name = urllib.parse.quote(raw_name, safe="")
     return f"{ANIMADEX_CHARACTER_THUMB_BASE}/{encoded_name}.webp"
-
-def _normalize_animadex_artist_preview_name(name: str) -> str:
-    return re.sub(r"\\([()[\]{}])", r"\1", str(name or "")).strip()
-
-def _animadex_artist_preview_url(name: str) -> str:
-    encoded_name = urllib.parse.quote(_normalize_animadex_artist_preview_name(name), safe="")
-    return f"{ANIMADEX_ARTIST_THUMB_BASE}/{encoded_name}.webp"
-
-def _artist_preview_candidates(name: str, item_id: str = "", partition: str = "") -> list[str]:
-    candidates = [_animadex_artist_preview_url(name)]
-    item_id = str(item_id or "").strip()
-    partition = str(partition or "").strip()
-    if item_id.isdigit() and partition.isdigit():
-        candidates.extend(f"{base}/{partition}/{item_id}.webp" for base in ANIMA_ASSETS_BASES)
-    return candidates
-
-def _safebooru_artist_tag(name: str) -> str:
-    return _normalize_animadex_artist_preview_name(name).replace(" ", "_")
-
-def _safebooru_artist_search_url(name: str) -> str:
-    params = urllib.parse.urlencode({
-        "page": "dapi",
-        "s": "post",
-        "q": "index",
-        "json": "1",
-        "tags": _safebooru_artist_tag(name),
-        "limit": "1",
-    })
-    return f"{SAFEBOORU_POSTS_API}?{params}"
 
 def _select_animadex_character_result(results: list, name: str, copyright: str) -> dict | None:
     if not results:
@@ -1488,23 +1418,7 @@ async def _read_remote_preview(session, source_url: str):
     except Exception:
         return None
 
-async def _resolve_safebooru_artist_preview(session, artist_name: str) -> str:
-    try:
-        async with session.get(_safebooru_artist_search_url(artist_name), allow_redirects=False) as upstream:
-            if upstream.status != 200:
-                return ""
-            data = await upstream.json(content_type=None)
-        if not isinstance(data, list) or not data or not isinstance(data[0], dict):
-            return ""
-        preview_url = str(data[0].get("preview_url") or "").strip()
-        parsed = urllib.parse.urlparse(preview_url)
-        if parsed.scheme != "https" or parsed.hostname not in {"safebooru.org", "www.safebooru.org"}:
-            return ""
-        return preview_url
-    except Exception:
-        return ""
-
-async def _proxy_remote_previews(source_urls: list[str], preview_kind: str, artist_name: str = ""):
+async def _proxy_remote_previews(source_urls: list[str], preview_kind: str):
     try:
         timeout = ClientTimeout(total=15)
         headers = {
@@ -1518,11 +1432,7 @@ async def _proxy_remote_previews(source_urls: list[str], preview_kind: str, arti
                     image_data, content_type = preview
                     break
             else:
-                fallback_url = await _resolve_safebooru_artist_preview(session, artist_name) if artist_name else ""
-                preview = await _read_remote_preview(session, fallback_url) if fallback_url else None
-                if not preview:
-                    return web.Response(status=404)
-                image_data, content_type = preview
+                return web.Response(status=404)
         return web.Response(
             body=image_data,
             content_type=content_type,
@@ -1543,19 +1453,4 @@ async def get_character_preview_api(request):
     return await _proxy_remote_previews(
         [_animadex_character_preview_url(name, copyright)],
         "character",
-    )
-
-@PromptServer.instance.routes.get("/anima-tools/artist/preview")
-async def get_artist_preview_api(request):
-    name = str(request.query.get("name", "")).strip()
-    item_id = str(request.query.get("id", "")).strip()
-    partition = str(request.query.get("partition", "")).strip()
-    if not name or len(name) > 160:
-        return web.Response(status=400)
-    if len(item_id) > 32 or len(partition) > 16:
-        return web.Response(status=400)
-    return await _proxy_remote_previews(
-        _artist_preview_candidates(name, item_id, partition),
-        "artist",
-        artist_name=name,
     )

@@ -106,35 +106,10 @@
   },
   "AnimaPromptPlus": {
     "display_name": "Anima 提示词",
-    "description": "将质量提示词、画师、角色、服装、姿势、背景和额外提示词分区编辑并统一拼接输出，可在同一个提示词选择器中切换各 Tag 分区并填充。",
+    "description": "由若干输入框按从上到下的顺序拼接输出。每个框右上角的「选择」可打开完整的提示词选择器，选中的 Tags 写入这个框；输入框可以随时添加、删除和调整顺序。",
     "inputs": {
-      "quality_prompt": {
-        "name": "质量提示词",
-        "tooltip": "放在最前面的质量、风格或基础提示词。"
-      },
-      "artist_tags": {
-        "name": "画师 Tags",
-        "tooltip": "由画师选择器填充，也可以手动修改。输出时会统一整理为 @artist 格式。"
-      },
-      "character_tags": {
-        "name": "角色 Tags",
-        "tooltip": "由角色选择器填充，也可以手动修改。"
-      },
-      "clothing_tags": {
-        "name": "服装 Tags",
-        "tooltip": "由服装选择器填充，也可以手动修改。"
-      },
-      "pose_tags": {
-        "name": "姿势 Tags",
-        "tooltip": "由姿势选择器填充，也可以手动修改。"
-      },
-      "background_tags": {
-        "name": "背景 Tags",
-        "tooltip": "由背景选择器填充，也可以手动修改。"
-      },
-      "extra_prompt": {
-        "name": "额外拼接提示词",
-        "tooltip": "放在所有选择器 Tag 之后的额外提示词。"
+      "prompt_boxes": {
+        "name": "输入框"
       },
       "separator": {
         "name": "分隔符",
@@ -147,39 +122,14 @@
   },
   "AnimaPromptPlusClipEncode": {
     "display_name": "Anima 提示词+",
-    "description": "使用与 Anima 提示词相同的分区内容拼接正面提示词，并通过 CLIP 直接编码为正面条件；同时输出最终文本并写入 Anima PNG 元数据。",
+    "description": "与 Anima 提示词相同的输入框拼接正面提示词，并通过 CLIP 直接编码为正面条件；同时输出最终文本并写入 Anima PNG 元数据。",
     "inputs": {
       "clip": {
         "name": "CLIP",
         "tooltip": "用于分词并编码最终正面提示词的 CLIP 模型。"
       },
-      "quality_prompt": {
-        "name": "质量提示词",
-        "tooltip": "放在最前面的质量、风格或基础提示词。"
-      },
-      "artist_tags": {
-        "name": "画师 Tags",
-        "tooltip": "由画师选择器填充，也可以手动修改。输出时会统一整理为 @artist 格式。"
-      },
-      "character_tags": {
-        "name": "角色 Tags",
-        "tooltip": "由角色选择器填充，也可以手动修改。"
-      },
-      "clothing_tags": {
-        "name": "服装 Tags",
-        "tooltip": "由服装选择器填充，也可以手动修改。"
-      },
-      "pose_tags": {
-        "name": "姿势 Tags",
-        "tooltip": "由姿势选择器填充，也可以手动修改。"
-      },
-      "background_tags": {
-        "name": "背景 Tags",
-        "tooltip": "由背景选择器填充，也可以手动修改。"
-      },
-      "extra_prompt": {
-        "name": "额外拼接提示词",
-        "tooltip": "放在所有选择器 Tag 之后的额外提示词。"
+      "prompt_boxes": {
+        "name": "输入框"
       },
       "separator": {
         "name": "分隔符",

@@ -2,6 +2,12 @@ import { t } from "./i18n.js";
 import { formatCount, shuffleInPlace } from "./anima_selector_ui.js";
 
 const SIDEBAR_STORAGE_KEY = "anima-artist-active-sidebar-category";
+// jsDelivr answers some cold requests for this large repo with "Package size exceeded", so GitHub Raw is the fallback.
+const PREVIEW_COMMIT = "1c4bf5bde9acba5b54396f0bdc9807f09b68bf9c";
+const PREVIEW_BASES = [
+    `https://cdn.jsdelivr.net/gh/nregret/AnimaTags-DB@${PREVIEW_COMMIT}/images/artist`,
+    `https://raw.githubusercontent.com/nregret/AnimaTags-DB/${PREVIEW_COMMIT}/images/artist`,
+];
 
 export const artistSelector = {
     kind: "artist",
@@ -28,27 +34,14 @@ function formatArtistName(name) {
     return unescapeArtistName(name).split(" ").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
 }
 
-function artistImageUrls(item) {
-    const name = unescapeArtistName(item.name);
-    const urls = name ? [`https://blobs.animadex.net/ArtistOutputs/thumbs/${encodeURIComponent(name)}.webp`] : [];
-    if (item.id) {
-        const partition = item.p || 1;
-        urls.push(
-            `https://fastly.jsdelivr.net/gh/ThetaCursed/Anima-Assets@main/images/${partition}/${item.id}.webp`,
-            `https://raw.githubusercontent.com/ThetaCursed/Anima-Assets/main/images/${partition}/${item.id}.webp`,
-            `https://cdn.statically.io/gh/ThetaCursed/Anima-Assets/main/images/${partition}/${item.id}.webp`,
-        );
-    }
-    return urls;
-}
+// Every artist has two Anima Style Gallery samples, switchable on the card and in the details panel.
+const artistImages = item => item.id ? ["p1", "p2"].map(variant => PREVIEW_BASES.map(base => `${base}/${item.id}-${variant}.webp`)) : [];
 
 const byNumber = (field, direction) => (a, b) => direction * ((Number(a[field]) || 0) - (Number(b[field]) || 0));
 const byName = direction => (a, b) => direction * String(a.name).localeCompare(String(b.name));
 const SORTERS = {
     "works-desc": byNumber("post_count", -1),
     "works-asc": byNumber("post_count", 1),
-    "unique-desc": byNumber("uniqueness_score", -1),
-    "unique-asc": byNumber("uniqueness_score", 1),
     "name-asc": byName(1),
     "name-desc": byName(-1),
 };
@@ -99,8 +92,6 @@ function artistSelectorConfig(widget) {
         sortOptions: [
             { value: "works-desc", label: t("Works Count ⬇") },
             { value: "works-asc", label: t("Works Count ⬆") },
-            { value: "unique-desc", label: t("Uniqueness Score ⬇") },
-            { value: "unique-asc", label: t("Uniqueness Score ⬆") },
             { value: "name-asc", label: t("Name A-Z") },
             { value: "name-desc", label: t("Name Z-A") },
             { value: "random", label: t("Random") },
@@ -126,13 +117,12 @@ function artistSelectorConfig(widget) {
         }),
         initialSelection: customs => parseInitialSelection(widget.value, data, customs),
         matches: (item, query) => String(item.name || "").toLowerCase().includes(query),
-        imageUrls: artistImageUrls,
+        images: artistImages,
         card: item => ({
             title: formatArtistName(item.name),
             tooltip: item.name,
             stats: item.post_count === undefined ? [] : [
                 { icon: "image", text: formatCount(item.post_count), title: t("Works") },
-                { text: `${t("Uniqueness")} ${Number(item.uniqueness_score || 0).toFixed(1)}`, tone: "warm", title: t("Uniqueness") },
             ],
         }),
         detail: item => ({
@@ -141,7 +131,6 @@ function artistSelectorConfig(widget) {
             sections: [{ title: t("Prompt"), icon: "tag", accent: true, tags: [{ value: item.name.startsWith("_raw_:") ? item.name.slice(6) : `@${item.name}` }] }],
             facts: item.post_count === undefined ? [] : [
                 { label: t("Works"), value: Number(item.post_count).toLocaleString() },
-                { label: t("Uniqueness"), value: Number(item.uniqueness_score || 0).toFixed(2) },
             ],
         }),
         buildOutput: items => {
