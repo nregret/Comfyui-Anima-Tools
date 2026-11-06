@@ -4,7 +4,7 @@
 
 **为 Anima 模型准备的 ComfyUI 提示词工具箱**
 
-可视化挑选画师、角色、服装、姿势与背景 · 一键随机抽卡 · 发现、下载并加载 Anima LoRA
+可视化挑选画师、角色、服装、姿势、背景与社区 Tag 库 · 自建我的Tag · 一键随机抽卡 · 发现、下载并加载 Anima LoRA
 
 <p>
   <img src="https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fnregret%2FComfyui-Anima-Tools%2Fmain%2Fpyproject.toml&query=%24.project.version&label=version&color=ff69b4&style=flat-square" alt="Version">
@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="License">
 </p>
 
-<sub>A ComfyUI toolkit for the Anima model: visual pickers for 42,197 artists, 8,000 characters, outfits, poses and backgrounds, a random prompt draw node, and an Anima LoRA manager. The UI follows ComfyUI's language setting (Chinese / English).</sub>
+<sub>A ComfyUI toolkit for the Anima model: visual pickers for 42,197 artists, 8,000 characters, outfits, poses and backgrounds, three community tag libraries (6,759 entries), a personal My Tags library, a random prompt draw node, and an Anima LoRA manager. The UI follows ComfyUI's language setting (Chinese / English).</sub>
 
 <img src="./img/artist.jpeg" alt="Anima 提示词选择器" width="100%">
 
@@ -26,6 +26,7 @@
 | 功能 | 说明 |
 | --- | --- |
 | 🎨 **一个弹窗挑全部提示词** | 画师 **42,197**、角色 **8,000**、服装 **430**、姿势 **297**、背景 **1,087**，顶部标签页切换，角标显示每类已选数量，选好的内容写进打开它的那个输入框 |
+| 📚 **社区 Tag 库 + 我的Tag** | 新增三个社区作者授权的 Tag 库共 **6,759** 条：千藤的衣柜 **125**、渡鸦的构图鉴 **6,570**、凉夏之夜的构图风格 **64**；还能在「我的Tag」里建自己的分类和条目，带封面，更新插件不丢失 |
 | 🎲 **随机抽卡** | 运行时从全量数据里随机抽画师、角色、服装、背景和姿势，固定种子可复现，结果带缩略图预览 |
 | 🧩 **Anima LoRA 管理器** | 在 ComfyUI 内搜索 Civitai 上的 Anima LoRA，下载、收藏、排序后直接叠加到模型上 |
 | 🖼️ **Danbooru 随机图 + 标签** | 随机抽一张 Danbooru 静态图，同时输出按 Anima 写法整理好的标签 |
@@ -54,7 +55,7 @@ git clone https://github.com/nregret/Comfyui-Anima-Tools.git
 
 ### 🎨 提示词选择器
 
-五类选择器共用一个弹窗：左侧是「全部 / 收藏夹 / 已选择」和筛选面板，分类、特征等选项直接列出、点一下就筛选，每组可以折叠，选项多时带搜索；社区 Tag 库按原作者的分类显示成可展开的分类树。右侧详情页显示大图和提示词（点击即可复制）。切换分类时已选内容会保留，下次打开时回到上次使用的分类。
+画师、角色、服装、姿势、背景、三个社区 Tag 库和我的Tag 共用一个弹窗：左侧是「全部 / 收藏夹 / 已选择」和筛选面板，分类、特征等选项直接列出、点一下就筛选，每组可以折叠，选项多时带搜索；社区 Tag 库按原作者的分类显示成可展开的分类树。右侧详情页显示大图和提示词（点击即可复制）。切换分类时已选内容会保留，下次打开时回到上次使用的分类。
 
 <table>
   <tr>
@@ -80,6 +81,8 @@ git clone https://github.com/nregret/Comfyui-Anima-Tools.git
 | 千藤的衣柜 | 叫我千藤就好了 | 125 | 整套服装搭配，附风格说明 |
 | 渡鸦的构图鉴 | 渡鸦 | 6,570 | 服装、配饰、姿势、表情、背景、画风、角色等 Tag 词典，按原作者分类筛选 |
 | 凉夏之夜的构图风格 | 凉夏之夜 | 64 | 带镜头与权重的完整场景描述 |
+
+<img src="./img/library.jpeg" alt="渡鸦的构图鉴" width="100%">
 
 数据整理自 [quicktagcloud](https://novelai.quicktagcloud.com/)，由 `tools/import_codex_libraries.py` 生成。下划线已转成空格，括号已转义，原有的 `(tag:权重)` 保留。渡鸦构图鉴中的「秋季课堂」使用 NovelAI 专有语法，没有收录。
 
