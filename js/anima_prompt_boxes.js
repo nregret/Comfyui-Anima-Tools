@@ -1,3 +1,4 @@
+import { app } from "../../scripts/app.js";
 import { t } from "./i18n.js";
 import { openBoxSelector } from "./anima_gallery_selector.js";
 import { SELECTOR_RANDOM_PROPERTY, normalizeBoolean } from "./anima_selector_random.js";
@@ -31,7 +32,7 @@ const LEGACY_SEPARATOR_INDEX = 7;
 
 const STYLE = `
 @keyframes animaBoxIn { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
-.anima-box, .anima-box-add {
+.anima-box, .anima-box-add, .anima-box-menu {
     --ab-text: var(--input-text, var(--fg-color, #e5e7eb));
     --ab-field: var(--comfy-input-bg, #222);
     --ab-accent: var(--primary-background, var(--p-primary-color, #31b9f4));
@@ -40,7 +41,7 @@ const STYLE = `
     --ab-hover: color-mix(in srgb, var(--ab-text) 9%, transparent);
     box-sizing: border-box; color: var(--ab-text); font-family: inherit; pointer-events: auto;
 }
-.anima-box svg, .anima-box-add svg { width: 14px; height: 14px; flex: none; }
+.anima-box svg, .anima-box-add svg, .anima-box-menu svg { width: 14px; height: 14px; flex: none; }
 .anima-box { position: relative; display: flex; flex-direction: column; width: 100%; border: 1px solid var(--ab-line); border-radius: 8px; background: var(--ab-field); transition: border-color .15s ease, box-shadow .15s ease, opacity .15s ease; }
 .anima-box:hover { border-color: color-mix(in srgb, var(--ab-text) 20%, transparent); }
 .anima-box:focus-within { border-color: color-mix(in srgb, var(--ab-accent) 60%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ab-accent) 16%, transparent); }
@@ -70,9 +71,10 @@ const STYLE = `
 .anima-box button b { min-width: 14px; height: 14px; box-sizing: border-box; padding: 0 4px; border-radius: 7px; background: var(--ab-accent); color: #fff; font-size: 9px; font-weight: 700; line-height: 14px; text-align: center; }
 .anima-box textarea { display: block; width: 100%; box-sizing: border-box; margin: 0; padding: 0 10px 8px; border: 0; background: transparent; color: var(--ab-text); font-family: inherit; font-size: 12px; line-height: 1.5; resize: none; outline: none; overflow-y: auto; scrollbar-width: thin; }
 .anima-box textarea::placeholder { color: var(--ab-muted); }
-.anima-box-menu { position: absolute; top: 27px; z-index: 30; width: max-content; min-width: 120px; padding: 4px; border: 1px solid var(--ab-line); border-radius: 8px; background: var(--comfy-menu-bg, #1f2125); box-shadow: 0 10px 28px rgba(0,0,0,.38); animation: animaBoxIn .14s ease-out; }
+.anima-box-menu { position: fixed; z-index: 10000; width: max-content; min-width: 120px; padding: 4px; border: 1px solid var(--ab-line); border-radius: 8px; background: var(--comfy-menu-bg, #1f2125); box-shadow: 0 10px 28px rgba(0,0,0,.38); transform-origin: top right; animation: animaBoxIn .14s ease-out; }
 .anima-box-menu-title { padding: 5px 8px 4px; color: var(--ab-muted); font-size: 10px; font-weight: 600; }
-.anima-box .anima-box-menu button { display: flex; width: 100%; height: 26px; justify-content: flex-start; padding: 0 8px; color: var(--ab-text); font-weight: 500; }
+.anima-box-menu button { display: flex; align-items: center; gap: 4px; width: 100%; height: 26px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--ab-text); font-family: inherit; font-size: 11px; font-weight: 500; line-height: 1; cursor: pointer; transition: background .15s; }
+.anima-box-menu button:hover { background: var(--ab-hover); }
 .anima-box-menu button svg { color: var(--ab-accent); opacity: 0; }
 .anima-box-menu button.is-checked svg { opacity: 1; }
 .anima-box-add { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: ${ADD_HEIGHT}px; min-height: ${ADD_HEIGHT}px; border: 1px dashed color-mix(in srgb, var(--ab-text) 22%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--ab-text) 2%, transparent); color: var(--ab-muted); font-size: 12px; font-weight: 600; line-height: 1; cursor: pointer; transition: border-color .15s, color .15s, background .15s; }
@@ -134,7 +136,9 @@ function createBoxesWidget(node, selectors) {
     injectStyle();
     const index = node.widgets.findIndex(widget => widget.name === WIDGET_NAME);
     const [source] = node.widgets.splice(index, 1);
-    let boxes = parseBoxes(source.value) || [];
+    // A node created while a graph loads gets its boxes from the saved value. Saved links are attached by slot
+    // before that, so a default box input would take a saved link and drop it when the default box goes away.
+    let boxes = app.configuringGraph ? [] : parseBoxes(source.value) || [];
     let newBox = null;
     let closeMenu = null;
     const views = new Map();
@@ -304,7 +308,8 @@ function createBoxesWidget(node, selectors) {
         return `${selectorIcon("shuffle")}${box.random.length ? `<b>${box.random.length}</b>` : ""}`;
     }
 
-    function toggleRandomMenu(box, anchor, card) {
+    // The menu lives on the body so the box rows below cannot cover it; it follows the canvas zoom of its button.
+    function toggleRandomMenu(box, anchor) {
         if (anchor.classList.contains("is-open")) {
             closeMenu?.();
             return;
@@ -336,14 +341,20 @@ function createBoxesWidget(node, selectors) {
             menu.remove();
             anchor.classList.remove("is-open");
             document.removeEventListener("pointerdown", outside, true);
+            document.removeEventListener("wheel", outside, true);
             document.removeEventListener("keydown", onKey, true);
             closeMenu = null;
         }
         document.addEventListener("pointerdown", outside, true);
+        document.addEventListener("wheel", outside, { capture: true, passive: true });
         document.addEventListener("keydown", onKey, true);
         anchor.classList.add("is-open");
-        menu.style.right = `${card.clientWidth - anchor.offsetLeft - anchor.offsetWidth}px`;
-        card.appendChild(menu);
+        const rect = anchor.getBoundingClientRect();
+        const scale = rect.height / anchor.offsetHeight;
+        menu.style.scale = scale;
+        menu.style.top = `${rect.bottom + 2 * scale}px`;
+        menu.style.right = `${document.documentElement.clientWidth - rect.right}px`;
+        document.body.appendChild(menu);
         closeMenu = close;
     }
 
@@ -421,7 +432,7 @@ function createBoxesWidget(node, selectors) {
         card.querySelector(".anima-box-head").addEventListener("click", event => {
             const button = event.target.closest("[data-action]");
             const action = button?.dataset.action;
-            if (action === "random") toggleRandomMenu(box, button, card);
+            if (action === "random") toggleRandomMenu(box, button);
             if (action === "clear") {
                 box.text = "";
                 box.picks = {};
@@ -458,12 +469,6 @@ function createBoxesWidget(node, selectors) {
     node.setSize?.([Math.max(node.size[0], MIN_WIDTH), node.computeSize()[1]]);
     return {
         render,
-        // Saved links name their target by slot index, so the box inputs made for the default box must go before
-        // the saved inputs are restored, or every saved box input would land one slot later.
-        reset() {
-            boxes = [];
-            [...views.keys()].forEach(removeView);
-        },
         migrate(values, savedInputs = []) {
             const legacy = legacyPromptBoxes(values, node.properties?.[SELECTOR_RANDOM_PROPERTY]);
             // ComfyUI re-attaches saved links by slot index, which no longer matches the old section inputs, so follow
@@ -488,12 +493,6 @@ export function installPromptBoxes(nodeType, selectors) {
     nodeType.prototype.onNodeCreated = function () {
         origOnCreated?.apply(this, arguments);
         this.__animaPromptBoxes = createBoxesWidget(this, selectors);
-    };
-
-    const origConfigure = nodeType.prototype.configure;
-    nodeType.prototype.configure = function () {
-        this.__animaPromptBoxes?.reset();
-        return origConfigure.apply(this, arguments);
     };
 
     // Workflows saved before the boxes became dynamic hold one widget value per fixed box plus the separator.
