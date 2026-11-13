@@ -107,6 +107,24 @@ class AnimaPromptPlusClipEncodeTests(unittest.TestCase):
         self.assertEqual(node.compose_prompt(boxes("a, b", "c"), " | ")["result"][0], "a | b | c")
         self.assertEqual(node.compose_prompt(boxes("", " , "), ", ")["result"][0], "")
 
+    def test_disabled_boxes_skip_typed_and_linked_text_without_losing_content(self):
+        entries = [{"id": "a", "text": "keep"}, {"id": "b", "text": "stored", "disabled": True}]
+        prompt_boxes = json.dumps(entries)
+        result = self.prompt_plus().compose_prompt(prompt_boxes, box_b="linked")
+        self.assertEqual(result["result"][0], "keep, ")
+        self.assertEqual(result["ui"]["anima_selector_tags"][0]["prompt_boxes"], prompt_boxes)
+
+        clip = FakeClip()
+        self.clip_encode().encode_prompt(clip=clip, prompt_boxes=prompt_boxes, box_b="linked")
+        self.assertEqual(clip.tokenized_text, "keep, ")
+        entries[1]["disabled"] = False
+        self.assertEqual(self.prompt_plus().compose_prompt(json.dumps(entries))["result"][0], "keep, stored, ")
+
+    def test_all_disabled_boxes_encode_an_empty_prompt(self):
+        clip = FakeClip()
+        self.clip_encode().encode_prompt(clip=clip, prompt_boxes=boxes("stored", **{"0": {"disabled": True}}))
+        self.assertEqual(clip.tokenized_text, "")
+
     def test_clip_node_encodes_and_records_resolved_positive_prompt(self):
         clip = FakeClip()
         extra_pnginfo = {"workflow": {"nodes": []}}
@@ -172,6 +190,24 @@ class AnimaPromptPlusClipEncodeTests(unittest.TestCase):
         self.box_random_resolver(prompt, {}, FakeComposer(None))
 
         self.assertIs(prompt["3"]["inputs"]["prompt_boxes"], prompt_boxes)
+
+    def test_disabled_random_box_preserves_text_picks_and_workflow_state(self):
+        disabled = {"text": "saved artist", "disabled": True, "random": ["artist"], "picks": {"artist": {"keys": ["saved artist"]}}}
+        prompt_boxes = json.dumps([disabled, {"text": "old background", "random": ["background"]}])
+        prompt = {"3": {"class_type": "AnimaPromptPlusClipEncode", "inputs": {"prompt_boxes": prompt_boxes}}}
+        workflow_node = {"id": 3, "widgets_values": [prompt_boxes, ", "]}
+        extra_pnginfo = {"workflow": {"nodes": [workflow_node]}}
+
+        self.box_random_resolver(prompt, extra_pnginfo, FakeComposer(workflow_node))
+        self.clip_resolver(prompt, extra_pnginfo, self.prompt_plus())
+
+        resolved = json.loads(prompt["3"]["inputs"]["prompt_boxes"])
+        self.assertEqual(resolved[0], disabled)
+        self.assertEqual(resolved[1]["text"], "drawn background, ")
+        self.assertEqual(json.loads(workflow_node["widgets_values"][0]), resolved)
+        self.assertNotIn("3:0:artist", extra_pnginfo["anima_selector_random"])
+        self.assertEqual(prompt["3"]["inputs"]["text"], "drawn background, ")
+        self.assertEqual(extra_pnginfo["anima_prompt"]["3"]["positive"], "drawn background, ")
 
     def test_clip_input_is_required_at_runtime(self):
         with self.assertRaisesRegex(RuntimeError, "clip input is invalid"):

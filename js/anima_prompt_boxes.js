@@ -5,7 +5,7 @@ import { SELECTOR_RANDOM_PROPERTY, normalizeBoolean } from "./anima_selector_ran
 import { copyText, escapeHtml, selectorIcon } from "./anima_selector_ui.js";
 
 // The prompt nodes keep a list of text boxes as JSON in their hidden prompt_boxes widget.
-// Each box: { id, label, text, random: [selector kinds drawn on run], picks: selector picks, see openBoxSelector }.
+// Each box: { id, label, text, disabled, random: [selector kinds drawn on run], picks: selector picks, see openBoxSelector }.
 // Every box is drawn by its own unserialized widget box_<id> with a STRING input bound to it, so a link
 // lands on the box and replaces its text the same way a link replaces a native text widget.
 const WIDGET_NAME = "prompt_boxes";
@@ -71,6 +71,11 @@ const STYLE = `
 .anima-box button b { min-width: 14px; height: 14px; box-sizing: border-box; padding: 0 4px; border-radius: 7px; background: var(--ab-accent); color: #fff; font-size: 9px; font-weight: 700; line-height: 14px; text-align: center; }
 .anima-box textarea { display: block; width: 100%; box-sizing: border-box; margin: 0; padding: 0 10px 8px; border: 0; background: transparent; color: var(--ab-text); font-family: inherit; font-size: 12px; line-height: 1.5; resize: none; outline: none; overflow-y: auto; scrollbar-width: thin; }
 .anima-box textarea::placeholder { color: var(--ab-muted); }
+.anima-box.is-disabled { filter: grayscale(1); }
+.anima-box.is-disabled .anima-box-title, .anima-box textarea:disabled { color: var(--ab-muted); }
+.anima-box textarea:disabled { background: transparent; cursor: not-allowed; }
+.anima-box .anima-box-head button:disabled { border-color: transparent; background: transparent; color: var(--ab-muted); opacity: .45; cursor: not-allowed; }
+.anima-box .anima-box-head button[aria-pressed="true"] { border-color: var(--ab-line); background: var(--ab-hover); color: var(--ab-text); }
 .anima-box-menu { position: fixed; z-index: 10000; width: max-content; min-width: 120px; padding: 4px; border: 1px solid var(--ab-line); border-radius: 8px; background: var(--comfy-menu-bg, #1f2125); box-shadow: 0 10px 28px rgba(0,0,0,.38); transform-origin: top right; animation: animaBoxIn .14s ease-out; }
 .anima-box-menu-title { padding: 5px 8px 4px; color: var(--ab-muted); font-size: 10px; font-weight: 600; }
 .anima-box-menu button { display: flex; align-items: center; gap: 4px; width: 100%; height: 26px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--ab-text); font-family: inherit; font-size: 11px; font-weight: 500; line-height: 1; cursor: pointer; transition: background .15s; }
@@ -91,7 +96,7 @@ function injectStyle() {
 }
 
 function createBox(box) {
-    return { id: Math.random().toString(36).slice(2, 8), label: "", text: "", random: [], picks: {}, ...box };
+    return { id: Math.random().toString(36).slice(2, 8), label: "", text: "", disabled: false, random: [], picks: {}, ...box };
 }
 
 // Vue nodes hand wheel events to the canvas from a capture listener above the node, so a scrollable box claims them first.
@@ -398,12 +403,13 @@ function createBoxesWidget(node, selectors) {
     function drawCard(card, box, position) {
         const single = boxes.length === 1;
         const picks = pickCount(box);
-        card.className = `anima-box ${box === newBox ? "is-new" : ""}`;
+        card.className = `anima-box ${box === newBox ? "is-new" : ""} ${box.disabled ? "is-disabled" : ""}`;
         card.innerHTML = `
             <div class="anima-box-head">
                 ${single ? "" : `<span class="anima-box-grip" title="${escapeHtml(t("Drag to reorder"))}">${selectorIcon("grip")}</span>`}
                 <span class="anima-box-title ${box.label ? "" : "is-placeholder"}" title="${escapeHtml(t("Click to rename"))}">${escapeHtml(titleOf(box, position))}</span>
                 <span class="anima-box-spacer"></span>
+                <button type="button" class="anima-box-icon" data-action="disable" aria-label="${escapeHtml(t("Disable text box"))}" aria-pressed="${box.disabled}" title="${escapeHtml(t(box.disabled ? "Enable text box" : "Disable text box"))}">${selectorIcon("ban")}</button>
                 <button type="button" class="anima-box-icon ${box.random.length ? "is-on" : ""}" data-action="random" title="${escapeHtml(t("Randomize on run"))}">${randomButtonHtml(box)}</button>
                 <button type="button" class="anima-box-icon" data-action="clear" title="${escapeHtml(t("Clear"))}">${selectorIcon("eraser")}</button>
                 <button type="button" class="anima-box-icon" data-action="copy" title="${escapeHtml(t("Copy"))}">${selectorIcon("copy")}</button>
@@ -413,6 +419,7 @@ function createBoxesWidget(node, selectors) {
             <textarea spellcheck="false"></textarea>`;
         const textarea = card.querySelector("textarea");
         textarea.value = box.text;
+        textarea.disabled = box.disabled;
         textarea.placeholder = t("Type a prompt, or pick tags from the selector...");
         textarea.style.height = `${textHeights.get(box.id) || MIN_TEXT_HEIGHT}px`;
         textarea.addEventListener("input", () => {
@@ -426,12 +433,20 @@ function createBoxesWidget(node, selectors) {
         titleEl.addEventListener("pointerdown", stopNodeDrag);
         titleEl.addEventListener("click", () => rename(box, titleEl, position));
         card.querySelectorAll("button").forEach(button => {
+            button.disabled = box.disabled && ["random", "clear", "select"].includes(button.dataset.action);
             button.addEventListener("pointerdown", stopNodeDrag);
             button.addEventListener("mousedown", stopNodeDrag);
         });
         card.querySelector(".anima-box-head").addEventListener("click", event => {
             const button = event.target.closest("[data-action]");
             const action = button?.dataset.action;
+            if (button?.disabled) return;
+            if (action === "disable") {
+                box.disabled = !box.disabled;
+                render();
+                if (event.detail === 0) card.querySelector('[data-action="disable"]').focus();
+                changed();
+            }
             if (action === "random") toggleRandomMenu(box, button);
             if (action === "clear") {
                 box.text = "";
