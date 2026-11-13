@@ -17,6 +17,7 @@ def load_queue_resolvers():
     nodes_path = Path(__file__).resolve().parents[1] / "nodes.py"
     tree = ast.parse(nodes_path.read_text(encoding="utf-8"), filename=str(nodes_path))
     names = {
+        "_prompt_box_disabled",
         "_set_selector_workflow_widget_value",
         "_selector_random_text",
         "_record_selector_random",
@@ -179,6 +180,53 @@ class AnimaPromptPlusClipEncodeTests(unittest.TestCase):
                 clip=None,
                 **self.prompt_values(),
             )
+
+    def test_disabled_boxes_are_left_out_of_the_composed_prompt(self):
+        prompt_boxes = json.dumps([
+            {"id": "a", "text": "masterpiece"},
+            {"id": "b", "text": "@dairi, ", "disabled": True},
+            {"id": "c", "text": "smile"},
+        ])
+
+        for node_class in (self.prompt_plus, self.clip_encode):
+            node = node_class()
+            text = node._compose_prompt_text(prompt_boxes, ", ")
+            self.assertEqual(text, "masterpiece, smile, ")
+        clip = FakeClip()
+        self.clip_encode().encode_prompt(clip=clip, prompt_boxes=prompt_boxes)
+        self.assertEqual(clip.tokenized_text, "masterpiece, smile, ")
+
+    def test_disabled_box_ignores_its_linked_text(self):
+        prompt_boxes = json.dumps([
+            {"id": "a", "text": "masterpiece", "disabled": True},
+            {"id": "b", "text": "smile"},
+        ])
+
+        self.assertEqual(self.prompt_plus().compose_prompt(prompt_boxes, ", ", box_a="@dairi")["result"][0], "smile, ")
+
+    def test_only_disabled_boxes_compose_to_nothing(self):
+        prompt_boxes = json.dumps([{"id": "a", "text": "masterpiece", "disabled": True}])
+
+        self.assertEqual(self.prompt_plus().compose_prompt(prompt_boxes, ", ")["result"][0], "")
+        self.assertEqual(self.prompt_plus().compose_prompt(boxes("a"), " | ")["result"][0], "a")
+
+    def test_disabled_box_is_not_drawn_when_queueing(self):
+        prompt_boxes = boxes(
+            "masterpiece",
+            "@old artist, ",
+            **{"1": {"random": ["artist"], "disabled": True}},
+        )
+        prompt = {"3": {"class_type": "AnimaPromptPlus", "inputs": {"prompt_boxes": prompt_boxes, "separator": ", "}}}
+        workflow_node = {"id": 3, "widgets_values": [prompt_boxes, ", "]}
+        extra_pnginfo = {"workflow": {"nodes": [workflow_node]}}
+
+        self.box_random_resolver(prompt, extra_pnginfo, FakeComposer(workflow_node))
+
+        resolved = json.loads(prompt["3"]["inputs"]["prompt_boxes"])
+        self.assertEqual(resolved[1]["text"], "@old artist, ")
+        self.assertEqual([box["text"] for box in resolved], ["masterpiece", "@old artist, "])
+        self.assertEqual(workflow_node["widgets_values"], [prompt_boxes, ", "])
+        self.assertEqual(self.prompt_plus().compose_prompt(**prompt["3"]["inputs"])["result"][0], "masterpiece, ")
 
 
 if __name__ == "__main__":

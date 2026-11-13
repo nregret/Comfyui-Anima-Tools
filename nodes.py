@@ -5,10 +5,23 @@ def _anima_selector_tags_result(tags, text):
     return {"ui": {"anima_selector_tags": [payload]}, "result": (text,)}
 
 # The prompt nodes draw one text box per entry of prompt_boxes, a JSON list of
-# {"id", "text", "label", "random", "picks"} written by js/anima_prompt_boxes.js.
+# {"id", "text", "label", "random", "picks", "disabled"} written by js/anima_prompt_boxes.js.
 # Each box has an undeclared STRING input box_<id>; ComfyUI passes linked inputs through as kwargs, and a linked
 # box uses the linked text instead of its own, like a linked text widget.
+# A disabled box keeps its text but neither its typed nor its linked text reaches the composed prompt.
 DEFAULT_PROMPT_BOXES = json.dumps([{"text": ""}])
+
+
+def _prompt_box_disabled(box):
+    if not isinstance(box, dict):
+        return False
+    value = box.get("disabled")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    return str(value or "").strip().lower() in ("true", "1", "yes", "on")
+
 
 class AnimaPromptPlus:
     @classmethod
@@ -59,6 +72,8 @@ class AnimaPromptPlus:
         box_inputs = box_inputs or {}
         parts = []
         for box in json.loads(prompt_boxes):
+            if _prompt_box_disabled(box):
+                continue
             linked = box_inputs.get(f"box_{box.get('id')}")
             parts.extend(self._split_prompt_tokens(box.get("text") if linked is None else linked))
         return self._join_prompt_parts(parts, separator)
@@ -1030,6 +1045,8 @@ def _resolve_prompt_box_random_nodes(prompt, extra_pnginfo, composer):
         boxes = json.loads(prompt_boxes)
         drawn = False
         for index, box in enumerate(boxes):
+            if _prompt_box_disabled(box):
+                continue
             parts = []
             for section in box.get("random") or []:
                 text, selected = _selector_random_text(composer, section)

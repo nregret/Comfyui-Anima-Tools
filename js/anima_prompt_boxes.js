@@ -4,7 +4,7 @@ import { SELECTOR_RANDOM_PROPERTY, normalizeBoolean } from "./anima_selector_ran
 import { copyText, escapeHtml, selectorIcon } from "./anima_selector_ui.js";
 
 // The prompt nodes keep a list of text boxes as JSON in their hidden prompt_boxes widget.
-// Each box: { id, label, text, random: [selector kinds drawn on run], picks: selector picks, see openBoxSelector }.
+// Each box: { id, label, text, random: [selector kinds drawn on run], picks: selector picks, disabled, see openBoxSelector }.
 // Every box is drawn by its own unserialized widget box_<id> with a STRING input bound to it, so a link
 // lands on the box and replaces its text the same way a link replaces a native text widget.
 const WIDGET_NAME = "prompt_boxes";
@@ -65,6 +65,13 @@ const STYLE = `
 .anima-box .anima-box-head .anima-box-remove:hover { border-color: rgba(248,113,113,.6); background: rgba(248,113,113,.12); color: #f87171; }
 .anima-box .anima-box-icon { min-width: 24px; padding: 0 4px; }
 .anima-box .anima-box-icon.is-on svg { color: var(--ab-accent); }
+.anima-box .anima-box-head .anima-box-disable.is-on { border-color: rgba(245,158,11,.65); background: rgba(245,158,11,.12); color: #f0a92e; }
+.anima-box .anima-box-head .anima-box-disable.is-on svg { color: #f0a92e; }
+.anima-box-muted { display: inline-flex; align-items: center; height: 16px; margin-right: 2px; padding: 0 6px; border: 1px solid rgba(245,158,11,.55); border-radius: 999px; background: rgba(245,158,11,.12); color: #f0a92e; font-size: 9px; font-weight: 700; letter-spacing: .04em; line-height: 1; white-space: nowrap; }
+.anima-box.is-muted { border-style: dashed; border-color: color-mix(in srgb, var(--ab-text) 24%, transparent); }
+.anima-box.is-muted:hover { border-color: color-mix(in srgb, var(--ab-text) 36%, transparent); }
+.anima-box.is-muted .anima-box-title { opacity: .65; }
+.anima-box.is-muted textarea, .anima-box.is-muted .anima-box-select { opacity: .45; }
 .anima-box .anima-box-select { padding: 0 6px 0 0; overflow: hidden; letter-spacing: .03em; }
 .anima-box-select-icon { width: 18px; height: 100%; flex: none; border-right: 1px solid; border-right-color: inherit; background: url("${SELECT_ICON}") center / cover; }
 .anima-box button b { min-width: 14px; height: 14px; box-sizing: border-box; padding: 0 4px; border-radius: 7px; background: var(--ab-accent); color: #fff; font-size: 9px; font-weight: 700; line-height: 14px; text-align: center; }
@@ -89,7 +96,15 @@ function injectStyle() {
 }
 
 function createBox(box) {
-    return { id: Math.random().toString(36).slice(2, 8), label: "", text: "", random: [], picks: {}, ...box };
+    return { id: Math.random().toString(36).slice(2, 8), label: "", text: "", random: [], picks: {}, disabled: false, ...box };
+}
+
+// A disabled box keeps its text on the card, but the node leaves it out of the composed prompt.
+function boxDisabled(box) {
+    const value = box.disabled;
+    if (typeof value === "boolean") return value;
+    if (typeof value === "number") return value !== 0;
+    return ["true", "1", "yes", "on"].includes(String(value ?? "").trim().toLowerCase());
 }
 
 // Vue nodes hand wheel events to the canvas from a capture listener above the node, so a scrollable box claims them first.
@@ -387,12 +402,15 @@ function createBoxesWidget(node, selectors) {
     function drawCard(card, box, position) {
         const single = boxes.length === 1;
         const picks = pickCount(box);
-        card.className = `anima-box ${box === newBox ? "is-new" : ""}`;
+        const muted = boxDisabled(box);
+        card.className = `anima-box ${box === newBox ? "is-new" : ""} ${muted ? "is-muted" : ""}`;
         card.innerHTML = `
             <div class="anima-box-head">
                 ${single ? "" : `<span class="anima-box-grip" title="${escapeHtml(t("Drag to reorder"))}">${selectorIcon("grip")}</span>`}
                 <span class="anima-box-title ${box.label ? "" : "is-placeholder"}" title="${escapeHtml(t("Click to rename"))}">${escapeHtml(titleOf(box, position))}</span>
                 <span class="anima-box-spacer"></span>
+                ${muted ? `<span class="anima-box-muted">${escapeHtml(t("Disabled"))}</span>` : ""}
+                <button type="button" class="anima-box-icon anima-box-disable ${muted ? "is-on" : ""}" data-action="disable" title="${escapeHtml(muted ? t("Enable text box") : t("Disable text box"))}">${selectorIcon("ban")}</button>
                 <button type="button" class="anima-box-icon ${box.random.length ? "is-on" : ""}" data-action="random" title="${escapeHtml(t("Randomize on run"))}">${randomButtonHtml(box)}</button>
                 <button type="button" class="anima-box-icon" data-action="clear" title="${escapeHtml(t("Clear"))}">${selectorIcon("eraser")}</button>
                 <button type="button" class="anima-box-icon" data-action="copy" title="${escapeHtml(t("Copy"))}">${selectorIcon("copy")}</button>
@@ -421,6 +439,11 @@ function createBoxesWidget(node, selectors) {
         card.querySelector(".anima-box-head").addEventListener("click", event => {
             const button = event.target.closest("[data-action]");
             const action = button?.dataset.action;
+            if (action === "disable") {
+                box.disabled = !boxDisabled(box);
+                render();
+                changed();
+            }
             if (action === "random") toggleRandomMenu(box, button, card);
             if (action === "clear") {
                 box.text = "";

@@ -106,7 +106,7 @@
   },
   "AnimaPromptPlus": {
     "display_name": "Anima Prompt",
-    "description": "Joins a list of text boxes from top to bottom. The Select button at the top right of each box opens the full prompt selector and writes the picked tags into that box; boxes can be added, removed and reordered.",
+    "description": "Joins a list of text boxes from top to bottom. The Select button at the top right of each box opens the full prompt selector and writes the picked tags into that box; boxes can be added, removed and reordered. The disable button at the top right of a box keeps its text out of the joined prompt until it is clicked again.",
     "inputs": {
       "prompt_boxes": {
         "name": "Text boxes"
